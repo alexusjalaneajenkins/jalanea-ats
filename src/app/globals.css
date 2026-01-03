@@ -1,52 +1,10 @@
 @import "tailwindcss";
 
-/* Jalanea ATS Design System - Matching Logo Style */
+/* Jalanea ATS - Nighttime Mischief Design System */
 :root {
-  /* Dark navy from logo */
-  --color-ats-950: 15 20 35;
-  --color-ats-900: 26 31 53;
-  --color-ats-800: 40 50 75;
-  --color-ats-700: 71 85 105;
-  --color-ats-600: 100 116 139;
-
-  /* Orange/Amber glow from logo */
-  --color-ats-orange: 245 158 11;
-  --color-ats-amber: 251 191 36;
-
-  /* Gray-blue mechanical parts */
-  --color-ats-steel: 148 163 184;
-
-  /* Accent colors from logo */
-  --color-ats-green: 34 197 94;
-  --color-ats-red: 239 68 68;
-
-  /* Text */
-  --color-ats-text: 248 250 252;
-  --color-ats-muted: 148 163 184;
-
-  --background: #0f1423;
-  --foreground: #f8fafc;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-
-  /* ATS color tokens */
-  --color-ats-950: rgb(var(--color-ats-950));
-  --color-ats-900: rgb(var(--color-ats-900));
-  --color-ats-800: rgb(var(--color-ats-800));
-  --color-ats-700: rgb(var(--color-ats-700));
-  --color-ats-600: rgb(var(--color-ats-600));
-  --color-ats-orange: rgb(var(--color-ats-orange));
-  --color-ats-amber: rgb(var(--color-ats-amber));
-  --color-ats-steel: rgb(var(--color-ats-steel));
-  --color-ats-green: rgb(var(--color-ats-green));
-  --color-ats-red: rgb(var(--color-ats-red));
-  --color-ats-text: rgb(var(--color-ats-text));
-  --color-ats-muted: rgb(var(--color-ats-muted));
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "Fira Code", monospace;
 }
 
 /* Base styles */
@@ -57,10 +15,16 @@ html {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  background: linear-gradient(135deg, #0c0a1d 0%, #1a1333 25%, #0f172a 50%, #1e1b4b 75%, #0c0a1d 100%);
+  color: #e0e7ff;
+  font-family: var(--font-sans);
   min-height: 100%;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(236, 72, 153, 0.3);
+  color: #fce7f3;
 }
 
 /* Custom Scrollbar */
@@ -70,88 +34,41 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--color-ats-900));
+  background: rgba(30, 27, 75, 0.5);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-ats-700));
+  background: rgba(99, 102, 241, 0.5);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--color-ats-600));
-}
-
-/* Illustrated style - bold outlines */
-.card-illustrated {
-  border: 2px solid rgb(var(--color-ats-700));
-  box-shadow:
-    0 0 0 1px rgb(var(--color-ats-800)),
-    0 4px 20px rgba(0, 0, 0, 0.3);
-}
-
-.card-illustrated:hover {
-  border-color: rgb(var(--color-ats-orange));
-  box-shadow:
-    0 0 0 1px rgb(var(--color-ats-orange) / 0.3),
-    0 4px 30px rgba(245, 158, 11, 0.15);
-}
-
-/* Orange glow effect like logo */
-.glow-orange {
-  box-shadow:
-    0 0 20px rgba(245, 158, 11, 0.3),
-    0 0 40px rgba(245, 158, 11, 0.2),
-    0 0 60px rgba(245, 158, 11, 0.1);
-}
-
-.text-glow-orange {
-  text-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
-}
-
-/* Circuit pattern background */
-.bg-circuit {
-  background-image:
-    radial-gradient(circle at 25% 25%, rgb(var(--color-ats-700) / 0.1) 1px, transparent 1px),
-    radial-gradient(circle at 75% 75%, rgb(var(--color-ats-700) / 0.1) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background: rgba(99, 102, 241, 0.7);
 }
 
 /* Animations */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
-  50% { box-shadow: 0 0 40px rgba(245, 158, 11, 0.6); }
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.4), 0 0 40px rgba(236, 72, 153, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(249, 115, 22, 0.6), 0 0 60px rgba(236, 72, 153, 0.3);
+  }
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-@keyframes score-fill {
-  from { stroke-dashoffset: 283; }
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.3); }
 }
 
 @keyframes confetti {
@@ -170,41 +87,28 @@ body {
   50% { transform: translateY(-8px); }
 }
 
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(15deg); }
+  75% { transform: rotate(-15deg); }
 }
 
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.4);
-    opacity: 0;
-  }
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
 /* Animation utilities */
-.animate-fade-in-up {
-  animation: fade-in-up 0.5s ease-out forwards;
-}
-
-.animate-scale-in {
-  animation: scale-in 0.4s ease-out forwards;
+.animate-float {
+  animation: float 6s ease-in-out infinite;
 }
 
 .animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+  animation: pulse-glow 3s ease-in-out infinite;
 }
 
-.animate-float {
-  animation: float 3s ease-in-out infinite;
-}
-
-.animate-score-fill {
-  animation: score-fill 1.5s ease-out forwards;
+.animate-twinkle {
+  animation: twinkle 3s ease-in-out infinite;
 }
 
 .animate-confetti {
@@ -215,12 +119,13 @@ body {
   animation: bounce-gentle 2s ease-in-out infinite;
 }
 
-.animate-shimmer {
-  animation: shimmer 2s linear infinite;
+.animate-wiggle {
+  animation: wiggle 2s ease-in-out infinite;
 }
 
-.animate-pulse-ring {
-  animation: pulse-ring 1.5s ease-out infinite;
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
 }
 
 /* Stagger delays */
@@ -230,9 +135,56 @@ body {
 .stagger-4 { animation-delay: 400ms; }
 .stagger-5 { animation-delay: 500ms; }
 
+/* Glass card effect */
+.glass-card {
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.9) 0%, rgba(88, 28, 135, 0.5) 50%, rgba(30, 27, 75, 0.9) 100%);
+  backdrop-filter: blur(20px);
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  box-shadow:
+    0 0 80px -20px rgba(99, 102, 241, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Neon glow effects */
+.glow-orange {
+  box-shadow:
+    0 0 20px rgba(249, 115, 22, 0.4),
+    0 0 40px rgba(249, 115, 22, 0.2),
+    0 0 60px rgba(249, 115, 22, 0.1);
+}
+
+.glow-pink {
+  box-shadow:
+    0 0 20px rgba(236, 72, 153, 0.4),
+    0 0 40px rgba(236, 72, 153, 0.2);
+}
+
+.glow-cyan {
+  box-shadow:
+    0 0 20px rgba(6, 182, 212, 0.4),
+    0 0 40px rgba(6, 182, 212, 0.2);
+}
+
+/* Text glow */
+.text-glow {
+  text-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+}
+
+.text-glow-orange {
+  text-shadow: 0 0 30px rgba(249, 115, 22, 0.5);
+}
+
+/* Grid pattern overlay */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(99, 102, 241, 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.5) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
 /* Focus indicators */
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
-  outline: 2px solid rgb(var(--color-ats-orange));
+  outline: 2px solid rgba(236, 72, 153, 0.5);
   outline-offset: 2px;
 }
 

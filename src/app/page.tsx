@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileText, Briefcase, CheckCircle2, XCircle, AlertTriangle, ChevronDown, Loader2, Target, TrendingUp, Rocket, ArrowRight, RotateCcw, Zap, Shield } from 'lucide-react';
-import Image from 'next/image';
+import { motion } from 'framer-motion';
+import { Sparkles, FileText, Briefcase, ArrowRight, CheckCircle2, Zap, Eye, Target, Rocket, Star, Moon, Cloud, XCircle, AlertTriangle, ChevronDown, TrendingUp, RotateCcw } from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface ATSResult {
   score: number;
@@ -24,19 +30,85 @@ interface ATSResult {
   overallSuggestions: string[];
 }
 
-// Confetti Component
+// --- Floating Stars Background ---
+const FloatingStars = () => {
+  const [stars, setStars] = useState<Array<{ id: number; size: number; x: number; y: number; delay: number; duration: number }>>([]);
+
+  useEffect(() => {
+    setStars(Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      size: Math.random() * 4 + 2,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      delay: Math.random() * 3,
+      duration: Math.random() * 3 + 2,
+    })));
+  }, []);
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {stars.map((s) => (
+        <motion.div
+          key={s.id}
+          className="absolute"
+          style={{ left: `${s.x}%`, top: `${s.y}%` }}
+          animate={{ opacity: [0.2, 0.8, 0.2], scale: [1, 1.3, 1] }}
+          transition={{ duration: s.duration, delay: s.delay, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Star className="text-yellow-300" style={{ width: s.size, height: s.size }} fill="currentColor" />
+        </motion.div>
+      ))}
+    </div>
+  );
+};
+
+// --- Floating Cloud Elements ---
+const FloatingClouds = () => (
+  <>
+    <motion.div
+      className="absolute top-[15%] left-[5%] text-indigo-800/30"
+      animate={{ x: [0, 20, 0], y: [0, -10, 0] }}
+      transition={{ duration: 8, repeat: Infinity }}
+    >
+      <Cloud className="w-24 h-24" />
+    </motion.div>
+    <motion.div
+      className="absolute top-[25%] right-[10%] text-purple-800/20"
+      animate={{ x: [0, -15, 0], y: [0, 10, 0] }}
+      transition={{ duration: 10, repeat: Infinity }}
+    >
+      <Cloud className="w-32 h-32" />
+    </motion.div>
+  </>
+);
+
+// --- Sticker Component ---
+const Sticker = ({ children, rotate = 0, className = '' }: { children: React.ReactNode; rotate?: number; className?: string }) => (
+  <motion.div
+    initial={{ scale: 0, rotate: rotate - 20 }}
+    animate={{ scale: 1, rotate }}
+    transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.5 }}
+    className={cn(
+      "absolute px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wide shadow-lg",
+      className
+    )}
+  >
+    {children}
+  </motion.div>
+);
+
+// --- Confetti ---
 function Confetti() {
   const [particles, setParticles] = useState<Array<{ id: number; x: number; delay: number; color: string }>>([]);
 
   useEffect(() => {
-    const colors = ['#f59e0b', '#fbbf24', '#22c55e', '#3b82f6', '#8b5cf6'];
-    const newParticles = Array.from({ length: 50 }, (_, i) => ({
+    const colors = ['#f97316', '#ec4899', '#06b6d4', '#22c55e', '#8b5cf6'];
+    setParticles(Array.from({ length: 50 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
       delay: Math.random() * 0.5,
       color: colors[Math.floor(Math.random() * colors.length)],
-    }));
-    setParticles(newParticles);
+    })));
   }, []);
 
   return (
@@ -52,199 +124,201 @@ function Confetti() {
   );
 }
 
-// Loading messages
-const loadingMessages = [
-  { text: "Scanning your resume...", emoji: "🔍" },
-  { text: "Matching keywords...", emoji: "🎯" },
-  { text: "Analyzing sections...", emoji: "📊" },
-  { text: "Calculating your score...", emoji: "⚡" },
-  { text: "Almost there...", emoji: "🚀" },
-];
+// --- Feature Pill ---
+const FeaturePill = ({ icon: Icon, title, color, delay }: { icon: React.ElementType; title: string; color: string; delay: number }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20, scale: 0.9 }}
+    animate={{ opacity: 1, y: 0, scale: 1 }}
+    transition={{ delay, type: "spring", stiffness: 200 }}
+    className={cn(
+      "flex items-center gap-3 px-5 py-3 rounded-2xl border-2 backdrop-blur-sm transition-all hover:scale-105 cursor-default",
+      color
+    )}
+  >
+    <Icon className="w-5 h-5" />
+    <span className="font-bold text-sm">{title}</span>
+  </motion.div>
+);
 
-// Score reactions
+// --- Score reactions ---
 const getScoreReaction = (score: number) => {
   if (score >= 90) return { emoji: "🎉", message: "You're crushing it! ATS won't know what hit it." };
-  if (score >= 75) return { emoji: "💪", message: "Strong! A few tweaks and you're golden." };
-  if (score >= 60) return { emoji: "👊", message: "Solid foundation. Let's power it up." };
-  if (score >= 40) return { emoji: "🔧", message: "Room to grow. We've got your back." };
+  if (score >= 75) return { emoji: "🔥", message: "On fire! A few tweaks and you're golden." };
+  if (score >= 60) return { emoji: "💪", message: "Solid foundation. Let's power it up." };
+  if (score >= 40) return { emoji: "🛠️", message: "Room to grow. We've got your back." };
   return { emoji: "🌱", message: "Let's build this up together." };
 };
 
-// Score Display
+// --- Score Display ---
 function ScoreDisplay({ score, summary }: { score: number; summary: string }) {
   const circumference = 2 * Math.PI * 45;
   const offset = circumference - (score / 100) * circumference;
   const reaction = getScoreReaction(score);
 
   const getScoreColor = () => {
-    if (score >= 75) return { stroke: '#22c55e', text: 'text-green-400', bg: 'bg-green-500' };
-    if (score >= 50) return { stroke: '#f59e0b', text: 'text-amber-400', bg: 'bg-amber-500' };
-    return { stroke: '#ef4444', text: 'text-red-400', bg: 'bg-red-500' };
+    if (score >= 75) return { stroke: '#22c55e', text: 'text-green-400', glow: 'glow-cyan' };
+    if (score >= 50) return { stroke: '#f97316', text: 'text-orange-400', glow: 'glow-orange' };
+    return { stroke: '#ec4899', text: 'text-pink-400', glow: 'glow-pink' };
   };
 
   const colors = getScoreColor();
 
   return (
-    <div className="flex flex-col md:flex-row items-center gap-8 animate-scale-in">
-      <div className="relative w-52 h-52 flex-shrink-0">
-        {/* Glow rings */}
-        <div className={`absolute inset-0 rounded-full blur-2xl opacity-30 ${colors.bg}`} />
-        <div className={`absolute inset-4 rounded-full blur-xl opacity-20 ${colors.bg}`} />
-
-        <svg className="w-52 h-52 -rotate-90 relative z-10" viewBox="0 0 100 100">
-          {/* Background ring */}
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#283050" strokeWidth="10" />
-          {/* Score ring */}
-          <circle
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col md:flex-row items-center gap-8"
+    >
+      <div className={`relative w-52 h-52 flex-shrink-0 ${colors.glow} rounded-full`}>
+        <svg className="w-52 h-52 -rotate-90" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(99, 102, 241, 0.2)" strokeWidth="10" />
+          <motion.circle
             cx="50" cy="50" r="45" fill="none"
             stroke={colors.stroke}
             strokeWidth="10"
             strokeLinecap="round"
             strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1.5, ease: "easeOut" }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={`text-6xl font-black ${colors.text}`}>{score}</span>
-          <span className="text-slate-400 text-sm font-medium">ATS SCORE</span>
+          <span className="text-indigo-400 text-sm font-bold uppercase tracking-wider">ATS Score</span>
         </div>
       </div>
       <div className="text-center md:text-left flex-1">
-        <div className="flex items-center gap-3 justify-center md:justify-start mb-3">
-          <span className="text-5xl animate-bounce-gentle">{reaction.emoji}</span>
-        </div>
-        <p className={`text-xl font-bold ${colors.text} mb-2`}>{reaction.message}</p>
-        <p className="text-slate-400 leading-relaxed">{summary}</p>
+        <span className="text-5xl animate-bounce-gentle inline-block mb-2">{reaction.emoji}</span>
+        <p className={`text-2xl font-black ${colors.text} mb-2`}>{reaction.message}</p>
+        <p className="text-indigo-300">{summary}</p>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// Keyword Analysis
+// --- Keyword Analysis ---
 function KeywordAnalysis({ matches }: { matches: ATSResult['keywordMatches'] }) {
   return (
-    <div className="animate-fade-in-up">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
-            <Target className="w-5 h-5 text-amber-400" />
+          <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+            <Target className="w-5 h-5 text-purple-400" />
           </div>
-          <h3 className="text-lg font-bold text-white">Keyword Match</h3>
+          <h3 className="text-lg font-black text-white">Keyword Match</h3>
         </div>
         <div className={`text-2xl font-black px-4 py-1 rounded-xl ${
           matches.matchRate >= 70 ? 'bg-green-500/20 text-green-400' :
-          matches.matchRate >= 40 ? 'bg-amber-500/20 text-amber-400' :
-          'bg-red-500/20 text-red-400'
+          matches.matchRate >= 40 ? 'bg-orange-500/20 text-orange-400' :
+          'bg-pink-500/20 text-pink-400'
         }`}>
           {matches.matchRate}%
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-3 bg-slate-800 rounded-full overflow-hidden mb-6 border-2 border-slate-700">
-        <div
-          className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-1000"
-          style={{ width: `${matches.matchRate}%` }}
+      <div className="h-3 bg-indigo-900/50 rounded-full overflow-hidden mb-6">
+        <motion.div
+          className="h-full rounded-full"
+          style={{ background: 'linear-gradient(90deg, #f97316, #ec4899, #06b6d4)' }}
+          initial={{ width: 0 }}
+          animate={{ width: `${matches.matchRate}%` }}
+          transition={{ duration: 1, delay: 0.3 }}
         />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-green-500/5 rounded-xl p-4 border-2 border-green-500/20">
+        <div className="bg-green-500/10 rounded-2xl p-4 border-2 border-green-500/30">
           <div className="flex items-center gap-2 mb-3">
             <CheckCircle2 className="w-5 h-5 text-green-400" />
             <span className="font-bold text-green-400">Found ({matches.found.length})</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {matches.found.slice(0, 6).map((kw, i) => (
-              <span key={i} className="px-3 py-1 text-sm bg-green-500/10 text-green-300 rounded-lg border border-green-500/30 font-medium">
+              <span key={i} className="px-3 py-1 text-sm bg-green-500/20 text-green-300 rounded-full font-medium">
                 {kw}
               </span>
             ))}
-            {matches.found.length > 6 && (
-              <span className="px-3 py-1 text-sm text-green-400/60 font-medium">+{matches.found.length - 6}</span>
-            )}
+            {matches.found.length > 6 && <span className="text-green-400/60 text-sm">+{matches.found.length - 6}</span>}
           </div>
         </div>
 
-        <div className="bg-red-500/5 rounded-xl p-4 border-2 border-red-500/20">
+        <div className="bg-pink-500/10 rounded-2xl p-4 border-2 border-pink-500/30">
           <div className="flex items-center gap-2 mb-3">
-            <XCircle className="w-5 h-5 text-red-400" />
-            <span className="font-bold text-red-400">Missing ({matches.missing.length})</span>
+            <XCircle className="w-5 h-5 text-pink-400" />
+            <span className="font-bold text-pink-400">Missing ({matches.missing.length})</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {matches.missing.slice(0, 6).map((kw, i) => (
-              <span key={i} className="px-3 py-1 text-sm bg-red-500/10 text-red-300 rounded-lg border border-red-500/30 font-medium">
+              <span key={i} className="px-3 py-1 text-sm bg-pink-500/20 text-pink-300 rounded-full font-medium">
                 {kw}
               </span>
             ))}
-            {matches.missing.length > 6 && (
-              <span className="px-3 py-1 text-sm text-red-400/60 font-medium">+{matches.missing.length - 6}</span>
-            )}
+            {matches.missing.length > 6 && <span className="text-pink-400/60 text-sm">+{matches.missing.length - 6}</span>}
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// Section Breakdown
+// --- Section Breakdown ---
 function SectionBreakdown({ sections }: { sections: ATSResult['sections'] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const getStyle = (score: number) => {
-    if (score >= 75) return 'text-green-400 bg-green-500/20 border-green-500/30';
-    if (score >= 50) return 'text-amber-400 bg-amber-500/20 border-amber-500/30';
-    return 'text-red-400 bg-red-500/20 border-red-500/30';
+    if (score >= 75) return 'text-green-400 bg-green-500/20 border-green-500/40';
+    if (score >= 50) return 'text-orange-400 bg-orange-500/20 border-orange-500/40';
+    return 'text-pink-400 bg-pink-500/20 border-pink-500/40';
   };
 
   return (
-    <div className="animate-fade-in-up">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
       <div className="flex items-center gap-3 mb-5">
-        <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
-          <TrendingUp className="w-5 h-5 text-amber-400" />
+        <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+          <TrendingUp className="w-5 h-5 text-cyan-400" />
         </div>
-        <h3 className="text-lg font-bold text-white">Section Scores</h3>
+        <h3 className="text-lg font-black text-white">Section Scores</h3>
       </div>
       <div className="space-y-2">
         {sections.map((s, i) => (
-          <div key={i} className="bg-slate-800/50 rounded-xl border-2 border-slate-700 overflow-hidden hover:border-slate-600 transition-colors">
+          <div key={i} className="bg-indigo-900/30 rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
             <button
               onClick={() => setExpanded(expanded === s.name ? null : s.name)}
-              className="w-full flex items-center justify-between p-4"
+              className="w-full flex items-center justify-between p-4 hover:bg-indigo-800/20 transition-colors"
             >
               <div className="flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-black border-2 ${getStyle(s.score)}`}>
                   {s.score}
                 </div>
-                <span className="font-semibold text-white">{s.name}</span>
+                <span className="font-bold text-white">{s.name}</span>
               </div>
-              <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${expanded === s.name ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-5 h-5 text-indigo-400 transition-transform ${expanded === s.name ? 'rotate-180' : ''}`} />
             </button>
             {expanded === s.name && (
-              <div className="px-4 pb-4 text-slate-400 border-t border-slate-700 pt-3">{s.feedback}</div>
+              <div className="px-4 pb-4 text-indigo-300 border-t border-indigo-500/20 pt-3">{s.feedback}</div>
             )}
           </div>
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// Suggestions
+// --- Suggestions ---
 function Suggestions({ suggestions, formatting }: { suggestions: string[]; formatting: ATSResult['formatting'] }) {
   return (
-    <div className="animate-fade-in-up space-y-6">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="space-y-6">
       {formatting.issues.length > 0 && (
-        <div className="bg-amber-500/5 rounded-xl p-5 border-2 border-amber-500/20">
+        <div className="bg-orange-500/10 rounded-2xl p-5 border-2 border-orange-500/30">
           <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
-            <h4 className="font-bold text-amber-400">Quick Fixes</h4>
+            <AlertTriangle className="w-5 h-5 text-orange-400" />
+            <h4 className="font-black text-orange-400">Quick Fixes</h4>
           </div>
           <ul className="space-y-2">
             {formatting.issues.map((issue, i) => (
-              <li key={i} className="flex items-start gap-3 text-slate-300">
-                <span className="text-amber-400 font-bold">→</span>{issue}
+              <li key={i} className="flex items-start gap-3 text-indigo-200">
+                <span className="text-orange-400 font-bold">→</span>{issue}
               </li>
             ))}
           </ul>
@@ -253,30 +327,39 @@ function Suggestions({ suggestions, formatting }: { suggestions: string[]; forma
 
       <div>
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
-            <Rocket className="w-5 h-5 text-amber-400" />
+          <div className="w-10 h-10 rounded-xl bg-pink-500/20 flex items-center justify-center">
+            <Rocket className="w-5 h-5 text-pink-400" />
           </div>
-          <h3 className="text-lg font-bold text-white">Power Moves</h3>
+          <h3 className="text-lg font-black text-white">Power Moves</h3>
         </div>
         <div className="space-y-3">
           {suggestions.map((s, i) => (
-            <div key={i} className="flex items-start gap-4 p-4 bg-slate-800/50 rounded-xl border-2 border-slate-700">
-              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white text-sm font-black flex items-center justify-center flex-shrink-0">
+            <div key={i} className="flex items-start gap-4 p-4 bg-indigo-900/30 rounded-2xl border-2 border-indigo-500/30">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 via-pink-500 to-purple-500 text-white text-sm font-black flex items-center justify-center flex-shrink-0">
                 {i + 1}
               </span>
-              <span className="text-slate-300">{s}</span>
+              <span className="text-indigo-200">{s}</span>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// Main Component
+// --- Loading Messages ---
+const loadingMessages = [
+  { text: "Scanning your resume...", emoji: "🔍" },
+  { text: "Matching keywords...", emoji: "🎯" },
+  { text: "Analyzing sections...", emoji: "📊" },
+  { text: "Calculating your score...", emoji: "⚡" },
+  { text: "Almost there...", emoji: "🚀" },
+];
+
+// --- Main Component ---
 export default function Home() {
-  const [resume, setResume] = useState('');
-  const [jobDescription, setJobDescription] = useState('');
+  const [resumeText, setResumeText] = useState('');
+  const [jobDesc, setJobDesc] = useState('');
   const [result, setResult] = useState<ATSResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -298,8 +381,8 @@ export default function Home() {
   }, [result]);
 
   const handleAnalyze = async () => {
-    if (!resume.trim() || !jobDescription.trim()) {
-      setError('Paste both your resume and the job description to continue');
+    if (!resumeText.trim() || !jobDesc.trim()) {
+      setError('Paste both your resume and the job description');
       return;
     }
     setLoading(true);
@@ -311,7 +394,7 @@ export default function Home() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resume, jobDescription }),
+        body: JSON.stringify({ resume: resumeText, jobDescription: jobDesc }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Analysis failed');
@@ -325,197 +408,244 @@ export default function Home() {
 
   const handleReset = () => {
     setResult(null);
-    setResume('');
-    setJobDescription('');
+    setResumeText('');
+    setJobDesc('');
     setError('');
   };
 
   return (
-    <main className="min-h-screen bg-[#0f1423] bg-circuit">
+    <div className="min-h-screen text-indigo-100 overflow-x-hidden">
       {showConfetti && <Confetti />}
 
-      {/* Header */}
-      <header className="border-b-2 border-slate-800 bg-[#0f1423]/90 backdrop-blur-xl sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl overflow-hidden">
-              <Image
-                src="/logo.png"
-                alt="Jalanea ATS"
-                width={40}
-                height={40}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <span className="font-black text-white text-lg">Jalanea ATS</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <Shield className="w-4 h-4 text-green-400" />
-            <span className="hidden sm:inline">Free forever • No signup</span>
-          </div>
-        </div>
-      </header>
+      {/* Background layers */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* Gradient orbs */}
+        <motion.div
+          className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full opacity-40"
+          style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.3) 0%, rgba(236,72,153,0.1) 40%, transparent 70%)' }}
+          animate={{ x: [0, 50, 0], y: [0, 30, 0], scale: [1, 1.1, 1] }}
+          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute bottom-[-30%] right-[-20%] w-[70%] h-[70%] rounded-full opacity-30"
+          style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.25) 0%, rgba(99,102,241,0.1) 40%, transparent 70%)' }}
+          animate={{ x: [0, -40, 0], y: [0, -20, 0], scale: [1, 1.15, 1] }}
+          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <FloatingClouds />
+        <FloatingStars />
+        {/* Grid pattern */}
+        <div className="absolute inset-0 bg-grid opacity-[0.04]" />
+      </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-10">
-        {/* Hero */}
+      {/* Navigation */}
+      <nav className="relative z-50 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto">
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3">
+          <div className="relative">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <span className="text-2xl font-black tracking-tight">
+            <span className="text-white">Jalanea</span>
+            <span className="text-orange-400"> ATS</span>
+          </span>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="hidden md:flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
+            <Moon className="w-4 h-4 text-yellow-400" />
+            <span className="font-medium">Free forever • No signup</span>
+          </div>
+        </motion.div>
+      </nav>
+
+      {/* Main content */}
+      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-24 pt-6">
         {!result && !loading && (
-          <div className="text-center mb-12 animate-fade-in-up">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-2 border-amber-500/30 rounded-full text-amber-400 text-sm font-bold mb-6">
-              <Zap className="w-4 h-4" />
-              AI-Powered ATS Scanner
+          <>
+            {/* Hero Section */}
+            <div className="text-center mb-16 relative">
+              {/* Floating stickers */}
+              <Sticker rotate={-12} className="top-0 left-[10%] bg-gradient-to-r from-cyan-400 to-cyan-500 text-cyan-950 hidden lg:block">
+                ✨ AI Magic
+              </Sticker>
+              <Sticker rotate={8} className="top-[20%] right-[8%] bg-gradient-to-r from-pink-400 to-pink-500 text-pink-950 hidden lg:block">
+                🚀 Free!
+              </Sticker>
+              <Sticker rotate={-6} className="bottom-[10%] left-[5%] bg-gradient-to-r from-yellow-300 to-orange-400 text-orange-950 hidden lg:block">
+                💪 Beat Bots
+              </Sticker>
+
+              {/* Badge */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="inline-flex items-center gap-2 rounded-full border-2 border-orange-500/40 bg-orange-500/10 px-5 py-2 text-sm font-bold text-orange-300 mb-8 backdrop-blur-sm"
+              >
+                <motion.div animate={{ rotate: [0, 15, -15, 0] }} transition={{ duration: 2, repeat: Infinity }}>
+                  <Zap className="w-4 h-4 fill-orange-400" />
+                </motion.div>
+                <span>AI-Powered Analysis</span>
+              </motion.div>
+
+              {/* Heading */}
+              <motion.h1
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="text-5xl md:text-7xl lg:text-8xl font-black tracking-tight leading-[0.95] mb-8"
+              >
+                <span className="block text-white text-glow">Will your resume</span>
+                <span className="relative inline-block mt-2">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-pink-500 to-cyan-400">
+                    beat the bots?
+                  </span>
+                  <motion.div
+                    initial={{ scaleX: 0 }}
+                    animate={{ scaleX: 1 }}
+                    transition={{ delay: 0.6, duration: 0.8 }}
+                    className="absolute -bottom-2 left-0 w-full h-2 rounded-full origin-left bg-gradient-to-r from-orange-500 via-pink-500 to-cyan-400"
+                  />
+                </span>
+              </motion.h1>
+
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="text-lg md:text-xl text-indigo-300 max-w-2xl mx-auto mb-10 leading-relaxed"
+              >
+                Don't let algorithms crush your dreams. Check your <span className="text-orange-400 font-bold">ATS compatibility score</span> before you hit apply.
+              </motion.p>
+
+              {/* Feature Pills */}
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex flex-wrap items-center justify-center gap-3 mb-12">
+                <FeaturePill icon={Eye} title="Keyword Scanner" color="bg-purple-900/40 border-purple-500/40 text-purple-200" delay={0.4} />
+                <FeaturePill icon={Target} title="Match Score" color="bg-cyan-900/40 border-cyan-500/40 text-cyan-200" delay={0.5} />
+                <FeaturePill icon={Rocket} title="Instant Tips" color="bg-pink-900/40 border-pink-500/40 text-pink-200" delay={0.6} />
+              </motion.div>
             </div>
 
-            {/* Headline */}
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-white mb-4 leading-tight">
-              Will your resume<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400 text-glow-orange">
-                beat the bots?
-              </span>
-            </h1>
-
-            <p className="text-slate-400 text-lg max-w-xl mx-auto mb-8">
-              75% of resumes get rejected by ATS before a human sees them. Check your score and fight back.
-            </p>
-
-            {/* Stats */}
-            <div className="flex justify-center gap-8 mb-8">
-              <div className="text-center">
-                <div className="text-3xl font-black text-amber-400">75%</div>
-                <div className="text-sm text-slate-500">Rejected by bots</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-black text-green-400">Free</div>
-                <div className="text-sm text-slate-500">Forever</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-black text-blue-400">10s</div>
-                <div className="text-sm text-slate-500">To analyze</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Input Section */}
-        {!result && !loading && (
-          <div className="space-y-6 animate-fade-in-up stagger-2">
-            <div className="grid md:grid-cols-2 gap-5">
-              {/* Resume Input */}
-              <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-5 card-illustrated transition-all">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <label className="font-bold text-white">Your Resume</label>
-                  <span className="ml-auto text-sm text-slate-500 font-mono">{resume.length}</span>
-                </div>
-                <textarea
-                  value={resume}
-                  onChange={(e) => setResume(e.target.value)}
-                  placeholder="Paste your full resume text here..."
-                  className="w-full h-52 bg-slate-800/80 border-2 border-slate-700 rounded-xl p-4 text-white placeholder-slate-500 resize-none focus:outline-none focus:border-amber-500 transition-colors font-mono text-sm"
-                />
-              </div>
-
-              {/* Job Description Input */}
-              <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-5 card-illustrated transition-all">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                    <Briefcase className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <label className="font-bold text-white">Job Description</label>
-                  <span className="ml-auto text-sm text-slate-500 font-mono">{jobDescription.length}</span>
-                </div>
-                <textarea
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Paste the job posting here..."
-                  className="w-full h-52 bg-slate-800/80 border-2 border-slate-700 rounded-xl p-4 text-white placeholder-slate-500 resize-none focus:outline-none focus:border-amber-500 transition-colors font-mono text-sm"
-                />
-              </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="p-4 bg-red-500/10 border-2 border-red-500/30 rounded-xl text-red-400 font-medium flex items-center gap-3">
-                <XCircle className="w-5 h-5" />{error}
-              </div>
-            )}
-
-            {/* Analyze Button */}
-            <button
-              onClick={handleAnalyze}
-              disabled={!resume.trim() || !jobDescription.trim()}
-              className="w-full py-5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-black text-lg rounded-xl hover:shadow-lg hover:shadow-amber-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 border-2 border-amber-400/50"
+            {/* Input Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, type: "spring", stiffness: 100 }}
+              className="w-full max-w-4xl mx-auto"
             >
-              <Zap className="w-6 h-6" />
-              ANALYZE MY RESUME
-              <ArrowRight className="w-5 h-5" />
-            </button>
-          </div>
+              <div className="glass-card rounded-3xl p-2">
+                <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 md:p-8">
+                  <div className="grid md:grid-cols-2 gap-6 mb-8">
+                    {/* Resume Input */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-sm font-bold text-indigo-200 uppercase tracking-wider">
+                          <FileText className="w-4 h-4" />
+                          Your Resume
+                        </label>
+                        <span className="text-xs text-indigo-400 font-mono bg-indigo-900/50 px-2 py-0.5 rounded-full">{resumeText.length}</span>
+                      </div>
+                      <textarea
+                        value={resumeText}
+                        onChange={(e) => setResumeText(e.target.value)}
+                        placeholder="Paste your full resume text here..."
+                        className="min-h-[160px] w-full rounded-2xl border-2 border-indigo-600/40 bg-indigo-950/60 px-4 py-3 text-sm text-indigo-100 placeholder:text-indigo-500 focus:outline-none focus:border-orange-500/60 focus:ring-4 focus:ring-orange-500/10 transition-all resize-none"
+                      />
+                    </div>
+
+                    {/* Job Description Input */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-sm font-bold text-indigo-200 uppercase tracking-wider">
+                          <Briefcase className="w-4 h-4" />
+                          Job Description
+                        </label>
+                        <span className="text-xs text-indigo-400 font-mono bg-indigo-900/50 px-2 py-0.5 rounded-full">{jobDesc.length}</span>
+                      </div>
+                      <textarea
+                        value={jobDesc}
+                        onChange={(e) => setJobDesc(e.target.value)}
+                        placeholder="Paste the job posting here..."
+                        className="min-h-[160px] w-full rounded-2xl border-2 border-indigo-600/40 bg-indigo-950/60 px-4 py-3 text-sm text-indigo-100 placeholder:text-indigo-500 focus:outline-none focus:border-orange-500/60 focus:ring-4 focus:ring-orange-500/10 transition-all resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="p-4 bg-pink-500/10 border-2 border-pink-500/30 rounded-xl text-pink-400 font-medium flex items-center gap-3 mb-6">
+                      <XCircle className="w-5 h-5" />{error}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col items-center">
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={!resumeText || !jobDesc || loading}
+                      className="w-full md:w-auto min-w-[300px] h-16 text-base font-black uppercase tracking-wider rounded-2xl px-8 py-4 bg-gradient-to-r from-orange-500 via-pink-500 to-orange-400 text-white hover:from-orange-400 hover:via-pink-400 hover:to-orange-300 shadow-[0_0_40px_-5px_rgba(249,115,22,0.6),0_0_60px_-10px_rgba(236,72,153,0.4)] hover:shadow-[0_0_50px_0px_rgba(249,115,22,0.7),0_0_70px_-5px_rgba(236,72,153,0.5)] transition-all active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-3"
+                    >
+                      <Sparkles className="w-5 h-5" />
+                      Analyze My Resume
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+
+                    <p className="mt-6 text-sm text-indigo-400 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      Your data is never stored • Built with 💜 by Jalanea
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
 
         {/* Loading State */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-24 animate-fade-in-up">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center py-24">
             <div className="relative mb-8">
-              {/* Pulse rings */}
-              <div className="absolute inset-0 rounded-full border-4 border-amber-500/30 animate-pulse-ring" />
-              <div className="w-28 h-28 rounded-full border-4 border-slate-700 border-t-amber-500 animate-spin" />
+              <div className="w-28 h-28 rounded-full border-4 border-indigo-800 border-t-orange-500 animate-spin" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="text-4xl">{loadingMessages[msgIdx].emoji}</span>
               </div>
             </div>
             <p className="text-white font-bold text-xl mb-2">{loadingMessages[msgIdx].text}</p>
-            <p className="text-slate-500">Hang tight, this takes about 10 seconds</p>
-          </div>
+            <p className="text-indigo-400">Hang tight, this takes about 10 seconds</p>
+          </motion.div>
         )}
 
         {/* Results */}
         {result && (
-          <div className="space-y-6">
-            {/* Score Hero */}
-            <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-8">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <div className="glass-card rounded-3xl p-8">
               <ScoreDisplay score={result.score} summary={result.summary} />
             </div>
 
-            {/* Two column results */}
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-6">
+              <div className="glass-card rounded-3xl p-6">
                 <KeywordAnalysis matches={result.keywordMatches} />
               </div>
-              <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-6">
+              <div className="glass-card rounded-3xl p-6">
                 <SectionBreakdown sections={result.sections} />
               </div>
             </div>
 
-            {/* Suggestions */}
-            <div className="bg-slate-900/80 rounded-2xl border-2 border-slate-700 p-6">
+            <div className="glass-card rounded-3xl p-6">
               <Suggestions suggestions={result.overallSuggestions} formatting={result.formatting} />
             </div>
 
-            {/* Reset */}
             <div className="text-center pt-4">
               <button
                 onClick={handleReset}
-                className="inline-flex items-center gap-3 px-8 py-4 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors border-2 border-slate-700"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-indigo-900/50 text-indigo-200 font-bold rounded-2xl hover:bg-indigo-800/50 border-2 border-indigo-600/50 transition-all"
               >
                 <RotateCcw className="w-5 h-5" />
                 Start Over
               </button>
             </div>
-          </div>
+          </motion.div>
         )}
-      </div>
-
-      {/* Footer */}
-      <footer className="border-t-2 border-slate-800 mt-auto">
-        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-slate-500 font-medium">
-            Built with 💪 by <span className="text-amber-400">Jalanea</span> • Your data is never stored
-          </p>
-        </div>
-      </footer>
-    </main>
+      </main>
+    </div>
   );
 }
