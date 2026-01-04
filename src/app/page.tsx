@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Briefcase, ArrowRight, CheckCircle2, Zap, Eye, Target, Rocket, Star, Moon, Cloud, XCircle, AlertTriangle, ChevronDown, TrendingUp, RotateCcw } from 'lucide-react';
+import { Sparkles, FileText, Briefcase, ArrowRight, CheckCircle2, Zap, Eye, Target, Rocket, Star, Moon, Cloud, XCircle, AlertTriangle, ChevronDown, TrendingUp, RotateCcw, Save, History, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { getDeviceId, saveAnalysis, getAnalysisHistory, deleteAnalysis, SavedAnalysis } from '@/lib/supabase';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -365,6 +366,12 @@ export default function Home() {
   const [error, setError] = useState('');
   const [msgIdx, setMsgIdx] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<SavedAnalysis[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [jobTitle, setJobTitle] = useState('');
 
   useEffect(() => {
     if (!loading) return;
@@ -411,6 +418,61 @@ export default function Home() {
     setResumeText('');
     setJobDesc('');
     setError('');
+    setSaved(false);
+    setJobTitle('');
+  };
+
+  const handleSave = async () => {
+    if (!result) return;
+    setSaving(true);
+    const deviceId = getDeviceId();
+    const title = jobTitle.trim() || 'Untitled Analysis';
+    const { error: saveError } = await saveAnalysis(deviceId, title, result);
+    setSaving(false);
+    if (!saveError) {
+      setSaved(true);
+    } else {
+      setError('Failed to save analysis');
+    }
+  };
+
+  const loadHistory = async () => {
+    setLoadingHistory(true);
+    const deviceId = getDeviceId();
+    const data = await getAnalysisHistory(deviceId);
+    setHistory(data);
+    setLoadingHistory(false);
+  };
+
+  const handleShowHistory = () => {
+    setShowHistory(true);
+    loadHistory();
+  };
+
+  const handleDeleteHistory = async (id: string) => {
+    const deviceId = getDeviceId();
+    const success = await deleteAnalysis(id, deviceId);
+    if (success) {
+      setHistory(history.filter(h => h.id !== id));
+    }
+  };
+
+  const handleLoadFromHistory = (item: SavedAnalysis) => {
+    setResult({
+      score: item.score,
+      summary: item.summary,
+      keywordMatches: {
+        found: item.keywords_found,
+        missing: item.keywords_missing,
+        matchRate: item.keyword_match_rate,
+      },
+      sections: item.sections,
+      formatting: { issues: [], suggestions: [] },
+      overallSuggestions: item.suggestions,
+    });
+    setJobTitle(item.job_title);
+    setShowHistory(false);
+    setSaved(true);
   };
 
   return (
@@ -452,10 +514,17 @@ export default function Home() {
           </span>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="hidden md:flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3">
+          <button
+            onClick={handleShowHistory}
+            className="flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30 hover:bg-indigo-800/40 transition-colors"
+          >
+            <History className="w-4 h-4" />
+            <span className="font-medium hidden sm:inline">History</span>
+          </button>
+          <div className="hidden md:flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
             <Moon className="w-4 h-4 text-yellow-400" />
-            <span className="font-medium">Free forever • No signup</span>
+            <span className="font-medium">Free forever</span>
           </div>
         </motion.div>
       </nav>
@@ -634,7 +703,32 @@ export default function Home() {
               <Suggestions suggestions={result.overallSuggestions} formatting={result.formatting} />
             </div>
 
-            <div className="text-center pt-4">
+            <div className="flex flex-col items-center gap-4 pt-4">
+              {!saved && (
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md">
+                  <input
+                    type="text"
+                    placeholder="Job title (optional)"
+                    value={jobTitle}
+                    onChange={(e) => setJobTitle(e.target.value)}
+                    className="flex-1 px-4 py-3 rounded-xl border-2 border-indigo-600/40 bg-indigo-950/60 text-indigo-100 placeholder:text-indigo-500 focus:outline-none focus:border-orange-500/60 text-sm w-full"
+                  />
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white font-bold rounded-xl hover:from-green-400 hover:to-emerald-400 transition-all disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <Save className="w-4 h-4" />
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              )}
+              {saved && (
+                <div className="flex items-center gap-2 text-green-400 font-medium">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Analysis saved to history!
+                </div>
+              )}
               <button
                 onClick={handleReset}
                 className="inline-flex items-center gap-3 px-8 py-4 bg-indigo-900/50 text-indigo-200 font-bold rounded-2xl hover:bg-indigo-800/50 border-2 border-indigo-600/50 transition-all"
@@ -646,6 +740,89 @@ export default function Home() {
           </motion.div>
         )}
       </main>
+
+      {/* History Modal */}
+      {showHistory && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowHistory(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-2xl max-h-[80vh] bg-indigo-950 rounded-3xl border-2 border-indigo-700/50 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-indigo-700/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                  <History className="w-5 h-5 text-orange-400" />
+                </div>
+                <h2 className="text-xl font-black text-white">Analysis History</h2>
+              </div>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="p-2 hover:bg-indigo-800/50 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5 text-indigo-400" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingHistory ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-indigo-600 border-t-orange-500 rounded-full animate-spin" />
+                </div>
+              ) : history.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="w-12 h-12 text-indigo-600 mx-auto mb-4" />
+                  <p className="text-indigo-400">No saved analyses yet</p>
+                  <p className="text-indigo-500 text-sm mt-1">Your saved analyses will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {history.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-4 p-4 bg-indigo-900/50 rounded-2xl border border-indigo-700/40 hover:bg-indigo-900/70 transition-colors"
+                    >
+                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-black border-2 flex-shrink-0 ${
+                        item.score >= 75 ? 'bg-green-500/20 text-green-400 border-green-500/40' :
+                        item.score >= 50 ? 'bg-orange-500/20 text-orange-400 border-orange-500/40' :
+                        'bg-pink-500/20 text-pink-400 border-pink-500/40'
+                      }`}>
+                        {item.score}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-white truncate">{item.job_title}</h3>
+                        <p className="text-sm text-indigo-400">
+                          {new Date(item.created_at).toLocaleDateString()} • {item.keyword_match_rate}% keyword match
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => handleLoadFromHistory(item)}
+                          className="px-4 py-2 bg-indigo-700/50 text-indigo-200 font-medium rounded-lg hover:bg-indigo-600/50 transition-colors text-sm"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleDeleteHistory(item.id)}
+                          className="p-2 text-pink-400 hover:bg-pink-500/20 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </div>
   );
 }
