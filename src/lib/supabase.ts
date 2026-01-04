@@ -1,9 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Lazy initialization to prevent prerender errors
+let supabaseInstance: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+function getSupabase(): SupabaseClient {
+  if (!supabaseInstance) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Supabase environment variables not configured');
+    }
+
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+  }
+  return supabaseInstance;
+}
 
 // Get or create a device ID for anonymous users
 export function getDeviceId(): string {
@@ -53,7 +65,7 @@ export async function saveAnalysis(
   }
 ): Promise<{ data: SavedAnalysis | null; error: Error | null }> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('ats_analyses')
       .insert({
         device_id: deviceId,
@@ -78,7 +90,7 @@ export async function saveAnalysis(
 
 // Get analysis history for a device
 export async function getAnalysisHistory(deviceId: string): Promise<SavedAnalysis[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('ats_analyses')
     .select('*')
     .eq('device_id', deviceId)
@@ -94,7 +106,7 @@ export async function getAnalysisHistory(deviceId: string): Promise<SavedAnalysi
 
 // Delete an analysis
 export async function deleteAnalysis(id: string, deviceId: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('ats_analyses')
     .delete()
     .eq('id', id)
