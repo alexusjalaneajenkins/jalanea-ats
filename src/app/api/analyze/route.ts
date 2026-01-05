@@ -49,19 +49,31 @@ export async function POST(request: NextRequest) {
 
     const response = await generateATSAnalysis(resume, jobDescription);
 
-    // Parse the JSON response from DeepSeek
+    // Parse the JSON response from DeepSeek with multiple strategies
     let result: ATSAnalysisResult;
     try {
-      // Try to extract JSON from the response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        result = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
+      // Strategy 1: Try direct JSON parsing (fastest)
+      try {
+        result = JSON.parse(response);
+      } catch {
+        // Strategy 2: Extract from markdown code blocks (```json ... ```)
+        const codeBlockMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        if (codeBlockMatch) {
+          result = JSON.parse(codeBlockMatch[1]);
+        } else {
+          // Strategy 3: Find last complete JSON object (greedy match from end)
+          const jsonMatch = response.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            result = JSON.parse(jsonMatch[0]);
+          } else {
+            throw new Error('No valid JSON found in response');
+          }
+        }
       }
-    } catch {
-      // If parsing fails, return a generic error
+    } catch (parseError) {
+      // If all parsing strategies fail, return a detailed error
       console.error('Failed to parse AI response:', response);
+      console.error('Parse error:', parseError);
       return NextResponse.json(
         { error: 'Failed to parse analysis. Please try again.' },
         { status: 500 }

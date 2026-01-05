@@ -89,7 +89,7 @@ export async function saveAnalysis(
 }
 
 // Get analysis history for a device
-export async function getAnalysisHistory(deviceId: string): Promise<SavedAnalysis[]> {
+export async function getAnalysisHistory(deviceId: string): Promise<{ data: SavedAnalysis[]; error: string | null }> {
   const { data, error } = await getSupabase()
     .from('ats_analyses')
     .select('*')
@@ -99,9 +99,9 @@ export async function getAnalysisHistory(deviceId: string): Promise<SavedAnalysi
 
   if (error) {
     console.error('Error fetching history:', error);
-    return [];
+    return { data: [], error: error.message || 'Failed to load history' };
   }
-  return data || [];
+  return { data: data || [], error: null };
 }
 
 // Delete an analysis

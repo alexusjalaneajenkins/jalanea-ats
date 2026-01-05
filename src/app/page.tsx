@@ -371,6 +371,7 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SavedAnalysis[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState('');
 
   useEffect(() => {
@@ -438,9 +439,11 @@ export default function Home() {
 
   const loadHistory = async () => {
     setLoadingHistory(true);
+    setHistoryError(null);
     const deviceId = getDeviceId();
-    const data = await getAnalysisHistory(deviceId);
+    const { data, error } = await getAnalysisHistory(deviceId);
     setHistory(data);
+    setHistoryError(error);
     setLoadingHistory(false);
   };
 
@@ -774,6 +777,11 @@ export default function Home() {
               {loadingHistory ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="w-8 h-8 border-2 border-indigo-600 border-t-orange-500 rounded-full animate-spin" />
+                </div>
+              ) : historyError ? (
+                <div className="p-4 bg-pink-500/10 border-2 border-pink-500/30 rounded-xl text-pink-400 font-medium flex items-center gap-3">
+                  <XCircle className="w-5 h-5" />
+                  {historyError}
                 </div>
               ) : history.length === 0 ? (
                 <div className="text-center py-12">
