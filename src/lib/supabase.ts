@@ -2,16 +2,28 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Lazy initialization to prevent prerender errors
 let supabaseInstance: SupabaseClient | null = null;
+let supabaseConfigured = false;
 
-function getSupabase(): SupabaseClient {
+/**
+ * Check if Supabase is configured with required environment variables.
+ */
+export function isSupabaseConfigured(): boolean {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return !!(supabaseUrl && supabaseAnonKey);
+}
+
+function getSupabase(): SupabaseClient | null {
   if (!supabaseInstance) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('Supabase environment variables not configured');
+      supabaseConfigured = false;
+      return null;
     }
 
+    supabaseConfigured = true;
     supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
   }
   return supabaseInstance;
@@ -64,8 +76,13 @@ export async function saveAnalysis(
     overallSuggestions: string[];
   }
 ): Promise<{ data: SavedAnalysis | null; error: Error | null }> {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return { data: null, error: new Error('Cloud storage not configured. History is stored locally only.') };
+  }
+
   try {
-    const { data, error } = await getSupabase()
+    const { data, error } = await supabase
       .from('ats_analyses')
       .insert({
         device_id: deviceId,
@@ -90,23 +107,47 @@ export async function saveAnalysis(
 
 // Get analysis history for a device
 export async function getAnalysisHistory(deviceId: string): Promise<{ data: SavedAnalysis[]; error: string | null }> {
-  const { data, error } = await getSupabase()
-    .from('ats_analyses')
-    .select('*')
-    .eq('device_id', deviceId)
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  if (error) {
-    console.error('Error fetching history:', error);
-    return { data: [], error: error.message || 'Failed to load history' };
+  const supabase = getSupabase();
+  if (!supabase) {
+    // Supabase not configured - return empty history without error
+    // This is expected in local-only mode
+    return { data: [], error: null };
   }
-  return { data: data || [], error: null };
+
+  try {
+    const { data, error } = await supabase
+      .from('ats_analyses')
+      .select('*')
+      .eq('device_id', deviceId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (error) {
+      // Check for auth/API key errors - these are configuration issues, not user errors
+      const errorMessage = error.message?.toLowerCase() || '';
+      if (errorMessage.includes('api key') || errorMessage.includes('invalid') || errorMessage.includes('unauthorized') || error.code === 'PGRST301') {
+        console.warn('Supabase not properly configured, running in local-only mode');
+        return { data: [], error: null };
+      }
+      console.error('Error fetching history:', error);
+      return { data: [], error: 'Failed to load history' };
+    }
+    return { data: data || [], error: null };
+  } catch (err) {
+    // Network or other errors - fail silently for better UX
+    console.warn('Could not connect to cloud storage:', err);
+    return { data: [], error: null };
+  }
 }
 
 // Delete an analysis
 export async function deleteAnalysis(id: string, deviceId: string): Promise<boolean> {
-  const { error } = await getSupabase()
+  const supabase = getSupabase();
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase
     .from('ats_analyses')
     .delete()
     .eq('id', id)

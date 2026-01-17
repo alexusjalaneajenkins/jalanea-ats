@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateATSAnalysis } from '@/lib/ai/deepseek';
+import { generateATSAnalysis } from '@/lib/ai/gemini';
 
 export interface ATSAnalysisResult {
   score: number;
