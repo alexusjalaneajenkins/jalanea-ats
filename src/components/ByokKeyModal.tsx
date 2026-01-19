@@ -24,6 +24,9 @@ import {
   LlmConfig,
   SupportedProvider,
   DEFAULT_LLM_CONFIG,
+  GeminiModel,
+  GEMINI_MODELS,
+  DEFAULT_GEMINI_MODEL,
 } from '@/lib/llm/types';
 import { geminiProvider } from '@/lib/llm/gemini';
 
@@ -92,6 +95,9 @@ export function ByokKeyModal({
   const [provider, setProvider] = useState<SupportedProvider>(
     currentConfig?.provider || 'gemini'
   );
+  const [geminiModel, setGeminiModel] = useState<GeminiModel>(
+    currentConfig?.geminiModel || DEFAULT_GEMINI_MODEL
+  );
   const [apiKey, setApiKey] = useState(currentConfig?.apiKey || '');
   const [showKey, setShowKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -101,10 +107,17 @@ export function ByokKeyModal({
   );
   const [activeTab, setActiveTab] = useState<'key' | 'preferences'>('key');
 
-  // Reset validation when key changes
+  // Reset validation when key or model changes
   useEffect(() => {
     setValidationResult(null);
-  }, [apiKey, provider]);
+  }, [apiKey, provider, geminiModel]);
+
+  // Update gemini provider model when selection changes
+  useEffect(() => {
+    if (provider === 'gemini') {
+      geminiProvider.setModel(geminiModel);
+    }
+  }, [geminiModel, provider]);
 
   // Handle provider change
   const handleProviderChange = (newProvider: SupportedProvider) => {
@@ -139,6 +152,7 @@ export function ByokKeyModal({
   const handleSave = () => {
     const config: LlmConfig = {
       provider,
+      geminiModel: provider === 'gemini' ? geminiModel : undefined,
       apiKey,
       hasConsented: currentConfig?.hasConsented || false,
       consentTimestamp: currentConfig?.consentTimestamp,
@@ -261,6 +275,53 @@ export function ByokKeyModal({
                     ))}
                   </div>
                 </div>
+
+                {/* Gemini Model Selection */}
+                {provider === 'gemini' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-3">
+                      Select Model
+                    </label>
+                    <p className="text-xs text-slate-400 mb-3">
+                      If you hit rate limits (RPD), try switching to a different model.
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {GEMINI_MODELS.map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => setGeminiModel(model.id)}
+                          className={`relative p-3 rounded-xl border text-left transition-all ${
+                            geminiModel === model.id
+                              ? 'border-cyan-500/50 bg-cyan-500/10'
+                              : 'border-slate-700 hover:border-slate-600 bg-slate-800/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-white text-sm">
+                                  {model.displayName}
+                                </p>
+                                {geminiModel === model.id && (
+                                  <div className="p-0.5 bg-cyan-500 rounded-full">
+                                    <Check className="w-3 h-3 text-white" />
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {model.description}
+                              </p>
+                            </div>
+                            <div className="text-right text-xs text-slate-500">
+                              <div>${model.pricing.input}/1M in</div>
+                              <div>${model.pricing.output}/1M out</div>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* API Key Input */}
                 <div>

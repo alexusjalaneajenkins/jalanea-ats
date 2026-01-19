@@ -15,6 +15,7 @@ import {
   saveLlmConfig,
   updateConsent,
 } from '@/lib/llm';
+import { geminiProvider } from '@/lib/llm/gemini';
 
 export interface UseLlmConfigReturn {
   config: LlmConfig | null;
@@ -39,7 +40,18 @@ export function useLlmConfig(): UseLlmConfigReturn {
     try {
       setIsLoading(true);
       const loaded = await loadLlmConfig();
-      setConfig(loaded || DEFAULT_LLM_CONFIG);
+      const configToUse = loaded || DEFAULT_LLM_CONFIG;
+      setConfig(configToUse);
+
+      // Sync gemini provider with loaded config
+      if (configToUse.provider === 'gemini') {
+        if (configToUse.apiKey) {
+          geminiProvider.setApiKey(configToUse.apiKey);
+        }
+        if (configToUse.geminiModel) {
+          geminiProvider.setModel(configToUse.geminiModel);
+        }
+      }
     } catch (error) {
       console.error('Failed to load LLM config:', error);
       setConfig(DEFAULT_LLM_CONFIG);
@@ -52,6 +64,16 @@ export function useLlmConfig(): UseLlmConfigReturn {
     try {
       await saveLlmConfig(newConfig);
       setConfig(newConfig);
+
+      // Sync gemini provider with new config
+      if (newConfig.provider === 'gemini') {
+        if (newConfig.apiKey) {
+          geminiProvider.setApiKey(newConfig.apiKey);
+        }
+        if (newConfig.geminiModel) {
+          geminiProvider.setModel(newConfig.geminiModel);
+        }
+      }
     } catch (error) {
       console.error('Failed to save LLM config:', error);
       throw error;

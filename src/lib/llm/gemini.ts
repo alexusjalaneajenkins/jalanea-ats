@@ -16,6 +16,10 @@ import {
   INJECTION_PATTERNS,
   InjectionCheckResult,
   createLlmError,
+  fetchWithRetry,
+  GeminiModel,
+  GEMINI_MODELS,
+  DEFAULT_GEMINI_MODEL,
 } from './types';
 
 // ============================================================================
@@ -23,18 +27,17 @@ import {
 // ============================================================================
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-// Using gemini-1.5-flash for better rate limits on free tier
-// Free tier limits: 15 RPM, 1M TPM, 1500 RPD
-const MODEL_ID = 'gemini-1.5-flash';
-
-// Pricing per 1M tokens (as of 2024)
-const PRICING = {
-  input: 0.075, // $0.075 per 1M input tokens
-  output: 0.30, // $0.30 per 1M output tokens
-};
 
 // Average tokens per character (rough estimate)
 const TOKENS_PER_CHAR = 0.25;
+
+/**
+ * Get pricing for a specific Gemini model
+ */
+function getModelPricing(model: GeminiModel): { input: number; output: number } {
+  const modelInfo = GEMINI_MODELS.find(m => m.id === model);
+  return modelInfo?.pricing || { input: 0.15, output: 0.60 };
+}
 
 // ============================================================================
 // Prompt Injection Defense
@@ -163,10 +166,14 @@ Only flag clear issues. Empty array if none found.`;
 export class GeminiProvider implements LlmProvider {
   name = 'gemini';
   private apiKey: string = '';
+  private model: GeminiModel = DEFAULT_GEMINI_MODEL;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, model?: GeminiModel) {
     if (apiKey) {
       this.apiKey = apiKey;
+    }
+    if (model) {
+      this.model = model;
     }
   }
 
@@ -185,12 +192,27 @@ export class GeminiProvider implements LlmProvider {
   }
 
   /**
+   * Set the model to use
+   */
+  setModel(model: GeminiModel): void {
+    this.model = model;
+  }
+
+  /**
+   * Get the current model
+   */
+  getModel(): GeminiModel {
+    return this.model;
+  }
+
+  /**
    * Validate an API key by making a test request
    */
   async validateKey(apiKey: string): Promise<boolean> {
     try {
+      // Use the current model for validation
       const response = await fetch(
-        `${GEMINI_API_BASE}/models/${MODEL_ID}?key=${apiKey}`
+        `${GEMINI_API_BASE}/models/${this.model}?key=${apiKey}`
       );
       return response.ok;
     } catch {
@@ -214,9 +236,12 @@ export class GeminiProvider implements LlmProvider {
     };
     const outputTokens = outputEstimates[requestType];
 
+    // Get pricing for current model
+    const pricing = getModelPricing(this.model);
+
     // Calculate cost
-    const inputCost = (inputTokens / 1_000_000) * PRICING.input;
-    const outputCost = (outputTokens / 1_000_000) * PRICING.output;
+    const inputCost = (inputTokens / 1_000_000) * pricing.input;
+    const outputCost = (outputTokens / 1_000_000) * pricing.output;
 
     return inputCost + outputCost;
   }
@@ -248,8 +273,8 @@ export class GeminiProvider implements LlmProvider {
       const systemPrompt = this.getSystemPrompt(requestType);
       const userContent = this.buildUserContent(input, requestType);
 
-      const response = await fetch(
-        `${GEMINI_API_BASE}/models/${MODEL_ID}:generateContent?key=${this.apiKey}`,
+      const response = await fetchWithRetry(
+        `${GEMINI_API_BASE}/models/${this.model}:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: {
@@ -265,7 +290,8 @@ export class GeminiProvider implements LlmProvider {
             generationConfig: {
               temperature: 0.3, // Lower temperature for more consistent output
               topP: 0.8,
-              maxOutputTokens: 1024,
+              maxOutputTokens: 2048, // Increased for semantic matching responses
+              responseMimeType: 'application/json', // Enable JSON mode for Gemini 3
             },
             safetySettings: [
               { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -367,26 +393,134 @@ ${input.bulletSection || 'Experience'}
    */
   private parseResponse(data: GeminiResponse, requestType: LlmRequestType): LlmOutput {
     try {
-      const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Check for blocked content or safety filters
+      const candidate = data.candidates?.[0];
 
-      if (!textContent) {
+      // Debug logging for Gemini 3 Flash responses
+      console.log('[Gemini] Raw response:', JSON.stringify(data, null, 2));
+
+      // Check if the response was blocked by safety filters
+      if (candidate?.finishReason === 'SAFETY') {
+        console.error('[Gemini] Response blocked by safety filters');
         return {
           success: false,
-          error: 'Empty response from API',
+          error: 'Response blocked by content safety filters. Try rephrasing the job description.',
         };
       }
 
-      // Extract JSON from response (may be wrapped in markdown code blocks)
-      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      // Check for other blocking reasons
+      if (candidate?.finishReason === 'RECITATION') {
+        console.error('[Gemini] Response blocked due to recitation');
         return {
           success: false,
-          error: 'Could not parse JSON from response',
-          rawResponse: textContent,
+          error: 'Response blocked due to potential copyright content.',
         };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      // Check if output was truncated due to token limit
+      const wasTruncated = candidate?.finishReason === 'MAX_TOKENS';
+      if (wasTruncated) {
+        console.warn('[Gemini] Response was truncated due to max tokens limit');
+      }
+
+      let textContent = candidate?.content?.parts?.[0]?.text;
+      console.log('[Gemini] Text content:', textContent);
+
+      if (!textContent || textContent.trim() === '') {
+        // Check if there's a promptFeedback that explains why
+        const blockReason = data.promptFeedback?.blockReason;
+        if (blockReason) {
+          return {
+            success: false,
+            error: `Request blocked: ${blockReason}. Try simplifying the job description.`,
+          };
+        }
+        return {
+          success: false,
+          error: 'Empty response from API. The model may not have been able to process the input.',
+        };
+      }
+
+      // Clean the text content - strip markdown code blocks if present
+      let cleanedContent = textContent.trim();
+
+      // Remove markdown code block wrappers (```json ... ``` or ``` ... ```)
+      const codeBlockMatch = cleanedContent.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+      if (codeBlockMatch) {
+        cleanedContent = codeBlockMatch[1].trim();
+      }
+
+      // With responseMimeType: 'application/json', the response should be pure JSON
+      // Try to parse the entire response first, then fall back to regex extraction
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanedContent);
+      } catch (parseError) {
+        // If truncated, try to repair the JSON by extracting complete array items
+        if (wasTruncated) {
+          console.log('[Gemini] Attempting to repair truncated JSON...');
+          const repaired = this.repairTruncatedSemanticMatchJson(cleanedContent);
+          if (repaired) {
+            try {
+              parsed = JSON.parse(repaired);
+              console.log('[Gemini] Successfully repaired truncated JSON');
+            } catch {
+              console.error('[Gemini] Failed to parse repaired JSON');
+            }
+          }
+        }
+
+        // If not parsed yet, fall back to extracting JSON from response
+        if (!parsed) {
+          const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            // Check if the response is a refusal or explanation text
+            const lowerContent = cleanedContent.toLowerCase();
+            if (lowerContent.includes('cannot') || lowerContent.includes("can't") ||
+                lowerContent.includes('unable') || lowerContent.includes('sorry')) {
+              console.error('[Gemini] Model refused request:', cleanedContent);
+              return {
+                success: false,
+                error: 'The AI model could not process this request. Try a different job description.',
+                rawResponse: cleanedContent.substring(0, 200),
+              };
+            }
+
+            console.error('[Gemini] Could not find JSON in response:', cleanedContent);
+            return {
+              success: false,
+              error: `Could not parse response as JSON. Raw: ${cleanedContent.substring(0, 100)}...`,
+              rawResponse: cleanedContent,
+            };
+          }
+
+          try {
+            parsed = JSON.parse(jsonMatch[0]);
+          } catch (innerParseError) {
+            // Try to repair the extracted JSON if it was truncated
+            if (wasTruncated) {
+              const repaired = this.repairTruncatedSemanticMatchJson(jsonMatch[0]);
+              if (repaired) {
+                try {
+                  parsed = JSON.parse(repaired);
+                  console.log('[Gemini] Successfully repaired extracted JSON');
+                } catch {
+                  // Fall through to error
+                }
+              }
+            }
+
+            if (!parsed) {
+              console.error('[Gemini] JSON extraction failed:', innerParseError);
+              return {
+                success: false,
+                error: `Invalid JSON structure in response. Raw: ${cleanedContent.substring(0, 100)}...`,
+                rawResponse: cleanedContent,
+              };
+            }
+          }
+        }
+      }
 
       // Check for injection detection response
       if (parsed.error === 'injection_detected') {
@@ -420,6 +554,31 @@ ${input.bulletSection || 'Experience'}
         success: false,
         error: `Failed to parse response: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
+    }
+  }
+
+  /**
+   * Attempt to repair truncated JSON for semantic match responses
+   * Extracts complete array items and closes the structure
+   */
+  private repairTruncatedSemanticMatchJson(truncatedJson: string): string | null {
+    try {
+      // Find all complete semantic match objects
+      // Match objects like: {"jdKeyword":"...","resumeMatch":"...","confidence":...,"explanation":"..."}
+      const objectPattern = /\{\s*"jdKeyword"\s*:\s*"[^"]*"\s*,\s*"resumeMatch"\s*:\s*"[^"]*"\s*,\s*"confidence"\s*:\s*[\d.]+\s*,\s*"explanation"\s*:\s*"[^"]*"\s*\}/g;
+      const matches = truncatedJson.match(objectPattern);
+
+      if (matches && matches.length > 0) {
+        // Reconstruct valid JSON with complete objects
+        const repairedJson = `{"semanticMatches":[${matches.join(',')}]}`;
+        console.log(`[Gemini] Repaired JSON with ${matches.length} complete matches`);
+        return repairedJson;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Gemini] Error repairing truncated JSON:', error);
+      return null;
     }
   }
 
@@ -527,6 +686,18 @@ ${input.bulletSection || 'Experience'}
       };
     }
 
+    if (status === 503) {
+      return {
+        success: false,
+        error: createLlmError(
+          'MODEL_OVERLOADED',
+          'The AI model is currently overloaded',
+          true,
+          'Please try again in a few moments. This is a temporary issue with the AI service.'
+        ).message,
+      };
+    }
+
     if (status === 400 && errorMessage.includes('quota')) {
       return {
         success: false,
@@ -557,10 +728,18 @@ interface GeminiResponse {
         text?: string;
       }>;
     };
+    finishReason?: 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER';
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+  };
+  promptFeedback?: {
+    blockReason?: 'SAFETY' | 'OTHER' | 'BLOCK_REASON_UNSPECIFIED';
+    safetyRatings?: Array<{
+      category: string;
+      probability: string;
+    }>;
   };
 }
 

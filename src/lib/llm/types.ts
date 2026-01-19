@@ -163,11 +163,68 @@ export interface LlmProvider {
 export type SupportedProvider = 'gemini' | 'openai' | 'anthropic';
 
 /**
+ * Available Gemini models
+ * User can select which model to use (helpful when hitting rate limits)
+ */
+export type GeminiModel = 'gemini-2.5-flash' | 'gemini-2.5-flash-lite' | 'gemini-2.0-flash' | 'gemini-3-flash-preview';
+
+/**
+ * Gemini model information for UI display
+ */
+export interface GeminiModelInfo {
+  id: GeminiModel;
+  displayName: string;
+  description: string;
+  pricing: {
+    input: number;  // per 1M tokens
+    output: number; // per 1M tokens
+  };
+}
+
+/**
+ * Available Gemini models with their details
+ */
+export const GEMINI_MODELS: GeminiModelInfo[] = [
+  {
+    id: 'gemini-3-flash-preview',
+    displayName: 'Gemini 3.0 Flash',
+    description: 'Newest preview model. Experimental.',
+    pricing: { input: 0.50, output: 3.00 },
+  },
+  {
+    id: 'gemini-2.5-flash',
+    displayName: 'Gemini 2.5 Flash',
+    description: 'Stable and capable. Recommended.',
+    pricing: { input: 0.15, output: 0.60 },
+  },
+  {
+    id: 'gemini-2.5-flash-lite',
+    displayName: 'Gemini 2.5 Flash Lite',
+    description: 'Faster and cheaper. Good for high volume.',
+    pricing: { input: 0.10, output: 0.40 },
+  },
+  {
+    id: 'gemini-2.0-flash',
+    displayName: 'Gemini 2.0 Flash',
+    description: 'Previous generation. Fallback option.',
+    pricing: { input: 0.10, output: 0.40 },
+  },
+];
+
+/**
+ * Default Gemini model
+ */
+export const DEFAULT_GEMINI_MODEL: GeminiModel = 'gemini-2.5-flash';
+
+/**
  * LLM Configuration stored in IndexedDB
  */
 export interface LlmConfig {
   /** Selected provider */
   provider: SupportedProvider;
+
+  /** Selected Gemini model (only used when provider is 'gemini') */
+  geminiModel?: GeminiModel;
 
   /** API key (encrypted at rest) */
   apiKey: string;
@@ -199,6 +256,7 @@ export interface LlmConfig {
  */
 export const DEFAULT_LLM_CONFIG: LlmConfig = {
   provider: 'gemini',
+  geminiModel: DEFAULT_GEMINI_MODEL,
   apiKey: '',
   hasConsented: false,
   preferences: {
@@ -255,7 +313,94 @@ export type LlmErrorCode =
   | 'PARSE_ERROR'
   | 'CONSENT_REQUIRED'
   | 'PROVIDER_ERROR'
-  | 'INJECTION_DETECTED';
+  | 'INJECTION_DETECTED'
+  | 'MODEL_OVERLOADED';
+
+// ============================================================================
+// Retry Configuration
+// ============================================================================
+
+/**
+ * Configuration for retry with exponential backoff
+ */
+export interface RetryConfig {
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Initial delay in milliseconds */
+  initialDelay: number;
+  /** Maximum delay in milliseconds */
+  maxDelay: number;
+  /** Multiplier for exponential backoff */
+  backoffMultiplier: number;
+}
+
+/**
+ * Default retry configuration for API calls
+ */
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  initialDelay: 1000, // 1 second
+  maxDelay: 10000, // 10 seconds
+  backoffMultiplier: 2,
+};
+
+/**
+ * Sleep for a specified duration
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a fetch request with retry logic and exponential backoff
+ * Handles 503 (model overloaded) and 429 (rate limit) errors
+ */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  config: RetryConfig = DEFAULT_RETRY_CONFIG
+): Promise<Response> {
+  let lastError: Error | null = null;
+  let delay = config.initialDelay;
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      // If successful or a non-retryable error, return immediately
+      if (response.ok || (response.status !== 503 && response.status !== 429)) {
+        return response;
+      }
+
+      // For 503 or 429, we should retry
+      if (attempt < config.maxRetries) {
+        console.log(
+          `[API Retry] Attempt ${attempt + 1}/${config.maxRetries + 1} failed with ${response.status}. ` +
+          `Retrying in ${delay}ms...`
+        );
+        await sleep(delay);
+        delay = Math.min(delay * config.backoffMultiplier, config.maxDelay);
+      } else {
+        // Last attempt failed, return the response so caller can handle the error
+        return response;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt < config.maxRetries) {
+        console.log(
+          `[API Retry] Attempt ${attempt + 1}/${config.maxRetries + 1} failed with network error. ` +
+          `Retrying in ${delay}ms...`
+        );
+        await sleep(delay);
+        delay = Math.min(delay * config.backoffMultiplier, config.maxDelay);
+      }
+    }
+  }
+
+  // If we exhausted all retries due to network errors, throw the last error
+  throw lastError || new Error('All retry attempts failed');
+}
 
 /**
  * Structured LLM error
