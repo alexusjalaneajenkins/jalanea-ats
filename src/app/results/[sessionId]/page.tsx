@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X } from 'lucide-react';
+import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings } from 'lucide-react';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
 import { ScoreCardGrid } from '@/components/scores';
 import { FindingsPanel } from '@/components/FindingsPanel';
@@ -452,6 +452,20 @@ export default function ResultsPage() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-3"
         >
+          <button
+            onClick={() => setShowKeyModal(true)}
+            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-full border transition-colors ${
+              llmConfig?.apiKey && llmConfig?.hasConsented
+                ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
+                : 'text-amber-300 hover:text-amber-200 bg-amber-900/30 border-amber-700/30 hover:border-amber-500/50'
+            }`}
+            title={llmConfig?.apiKey ? 'API key configured' : 'Add your API key for AI features'}
+          >
+            <Settings className="w-4 h-4" />
+            <span className="font-medium hidden sm:inline">
+              {llmConfig?.apiKey && llmConfig?.hasConsented ? 'API Key ✓' : 'Add API Key'}
+            </span>
+          </button>
           <button
             onClick={() => setShowHistory(true)}
             className="flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30 hover:border-indigo-500/50 transition-colors"
