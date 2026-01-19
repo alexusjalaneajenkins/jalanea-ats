@@ -166,7 +166,7 @@ export type SupportedProvider = 'gemini' | 'openai' | 'anthropic';
  * Available Gemini models
  * User can select which model to use (helpful when hitting rate limits)
  */
-export type GeminiModel = 'gemini-2.5-flash' | 'gemini-2.5-flash-lite' | 'gemini-2.0-flash' | 'gemini-3-flash-preview';
+export type GeminiModel = 'gemini-2.5-flash' | 'gemini-2.5-flash-lite' | 'gemini-2.0-flash' | 'gemini-3-flash';
 
 /**
  * Gemini model information for UI display
@@ -186,9 +186,9 @@ export interface GeminiModelInfo {
  */
 export const GEMINI_MODELS: GeminiModelInfo[] = [
   {
-    id: 'gemini-3-flash-preview',
+    id: 'gemini-3-flash',
     displayName: 'Gemini 3.0 Flash',
-    description: 'Newest preview model. Experimental.',
+    description: 'Newest model. Fast and capable.',
     pricing: { input: 0.50, output: 3.00 },
   },
   {
