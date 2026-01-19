@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Upload, FileText, Shield, Eye, CheckCircle, Star, Cloud, Moon } from 'lucide-react';
+import { Sparkles, Upload, FileText, Shield, Eye, CheckCircle, Star, Cloud, Moon, Key, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -13,6 +13,9 @@ import { parseDocx, DocxParseError } from '@/lib/parsers/docx';
 import { parseTxt, TxtParseError } from '@/lib/parsers/txt';
 import { createSession, ResumeArtifact } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
+import { useLlmConfig } from '@/hooks/useLlmConfig';
+import { ByokKeyModal } from '@/components/ByokKeyModal';
+import { ConsentModal } from '@/components/ConsentModal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -112,6 +115,28 @@ export default function HomePage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+
+  // API key configuration
+  const { config: llmConfig, updateConfig, setConsent, isLoading: isLoadingConfig } = useLlmConfig();
+  const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+
+  // Handle saving API key
+  const handleSaveLlmConfig = useCallback(async (newConfig: Parameters<typeof updateConfig>[0]) => {
+    await updateConfig({
+      ...newConfig,
+      hasConsented: false,
+    });
+    setShowKeyModal(false);
+    setShowConsentModal(true);
+  }, [updateConfig]);
+
+  // Handle consent
+  const handleConsent = useCallback(async () => {
+    await setConsent(true);
+    setShowConsentModal(false);
+  }, [setConsent]);
 
   /**
    * Handles file selection and parsing.
@@ -222,6 +247,20 @@ export default function HomePage() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-3"
         >
+          <button
+            onClick={() => setShowKeyModal(true)}
+            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-full border transition-colors ${
+              hasApiKey
+                ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
+                : 'text-amber-300 hover:text-amber-200 bg-amber-900/30 border-amber-700/30 hover:border-amber-500/50'
+            }`}
+            title={hasApiKey ? 'API key configured' : 'Add your API key for AI features'}
+          >
+            <Settings className="w-4 h-4" />
+            <span className="font-medium hidden sm:inline">
+              {hasApiKey ? 'API Key ✓' : 'Add API Key'}
+            </span>
+          </button>
           <div className="hidden md:flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
             <Moon className="w-4 h-4 text-yellow-400" />
             <span className="font-medium">Free forever</span>
@@ -274,14 +313,61 @@ export default function HomePage() {
           </motion.p>
         </div>
 
+        {/* API Key Setup Prompt - Show when not configured */}
+        {!isLoadingConfig && !hasApiKey && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="mb-6 p-5 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-2xl"
+          >
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-amber-500/20 rounded-xl shrink-0">
+                <Key className="w-6 h-6 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-white mb-1">
+                  Step 1: Add Your Free API Key
+                </h3>
+                <p className="text-sm text-amber-200/80 mb-4">
+                  Jalanea ATS uses AI to analyze your resume. Add your free Gemini API key to enable all features including semantic matching and detailed analysis.
+                </p>
+                <button
+                  onClick={() => setShowKeyModal(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity shadow-lg"
+                >
+                  <Key className="w-4 h-4" />
+                  Add API Key (Free)
+                </button>
+                <p className="text-xs text-amber-300/60 mt-3">
+                  Get your free API key at{' '}
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-amber-300"
+                  >
+                    aistudio.google.com/apikey
+                  </a>
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Upload Card */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, type: "spring", stiffness: 100 }}
-          className="glass-card rounded-3xl p-2 mb-10"
+          className={`glass-card rounded-3xl p-2 mb-10 relative ${!hasApiKey && !isLoadingConfig ? 'opacity-50 pointer-events-none' : ''}`}
         >
           <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 md:p-8">
+            {!hasApiKey && !isLoadingConfig && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-indigo-950/60 rounded-2xl backdrop-blur-sm">
+                <p className="text-indigo-300 font-medium">Add your API key above to start</p>
+              </div>
+            )}
             <UploadDropzone
               onFileSelect={handleFileSelect}
               isProcessing={isProcessing}
@@ -379,6 +465,22 @@ export default function HomePage() {
           </Link>
         </motion.div>
       </main>
+
+      {/* API Key Modal */}
+      <ByokKeyModal
+        isOpen={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+        onSave={handleSaveLlmConfig}
+        currentConfig={llmConfig || undefined}
+      />
+
+      {/* Consent Modal */}
+      <ConsentModal
+        isOpen={showConsentModal}
+        onClose={() => setShowConsentModal(false)}
+        onConsent={handleConsent}
+        providerName="Google Gemini"
+      />
     </div>
   );
 }
