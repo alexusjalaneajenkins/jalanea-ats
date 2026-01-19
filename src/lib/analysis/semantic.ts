@@ -641,8 +641,10 @@ ${resumeText.slice(0, 3000)}
 JOB DESCRIPTION:
 ${jobDescription.slice(0, 2000)}`;
 
+    // Use the model selected in config, default to gemini-2.5-flash
+    const modelId = config.geminiModel || 'gemini-2.5-flash';
     const response = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${config.apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${config.apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
