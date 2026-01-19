@@ -574,10 +574,14 @@ function analyzeDateFormats(text: string, findings: Finding[]): number {
   ];
 
   // Ambiguous date patterns that may cause parsing issues
+  // Note: Only count standalone years that are NOT part of MM/YYYY or MM-YYYY formats
   const ambiguousDatePatterns = [
-    /\b(Summer|Fall|Winter|Spring)\s*\d{4}\b/gi,  // Season YYYY
-    /\b\d{4}\b/g,  // Just year alone
+    /\b(Summer|Fall|Winter|Spring)\s*\d{4}\b/gi,  // Season YYYY (e.g., "Summer 2023")
   ];
+
+  // Count truly standalone years (not preceded by / or - which indicates MM/YYYY format)
+  // This regex uses a technique to find years not part of standard date formats
+  const standaloneYearPattern = /(?<![\/\-\d])\b(19|20)\d{2}\b(?!\s*[-–]\s*\d)/g;
 
   let standardDateCount = 0;
   let ambiguousDateCount = 0;
@@ -591,6 +595,20 @@ function analyzeDateFormats(text: string, findings: Finding[]): number {
     const matches = text.match(pattern);
     if (matches) ambiguousDateCount += matches.length;
   });
+
+  // Count standalone years separately (years not part of MM/YYYY dates)
+  const standaloneYears = text.match(standaloneYearPattern);
+  if (standaloneYears) {
+    // Filter out years that are likely part of date ranges (preceded by month names)
+    const trulyStandaloneYears = standaloneYears.filter((year) => {
+      const yearIndex = text.indexOf(year);
+      const precedingText = text.substring(Math.max(0, yearIndex - 15), yearIndex);
+      // Check if preceded by month abbreviation or full month name
+      const monthPattern = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\b\.?\s*$/i;
+      return !monthPattern.test(precedingText);
+    });
+    ambiguousDateCount += trulyStandaloneYears.length;
+  }
 
   // Check for "Present" or "Current" keywords indicating active employment
   const hasCurrentRole = /\b(Present|Current)\b/i.test(text);
