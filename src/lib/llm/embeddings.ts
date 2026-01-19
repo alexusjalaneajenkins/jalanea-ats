@@ -123,18 +123,25 @@ async function generateGeminiEmbedding(
     const errorData = await response.json().catch(() => ({}));
     const errorMessage = (errorData.error as { message?: string })?.message || `HTTP ${response.status}`;
 
-    // Provide specific error messages based on status code
+    // Provide specific error messages based on status code (per Google docs)
     switch (response.status) {
-      case 401:
-        return { success: false, error: 'Invalid API key. Please check your API key in settings.' };
+      case 400:
+        if (errorMessage.toLowerCase().includes('country') || errorMessage.toLowerCase().includes('region')) {
+          return { success: false, error: 'Gemini API free tier is not available in your country.' };
+        }
+        return { success: false, error: `Invalid embedding request: ${errorMessage}` };
       case 403:
-        return { success: false, error: 'Your API key doesn\'t have access to the embedding model.' };
+        return { success: false, error: 'Your API key doesn\'t have permission to use the embedding model.' };
       case 404:
-        return { success: false, error: 'Embedding model not found. It may have been deprecated.' };
+        return { success: false, error: 'Embedding model not found. It may have been renamed or removed.' };
       case 429:
-        return { success: false, error: 'Rate limit exceeded. You\'ve hit your daily/minute limit. Try again later.' };
+        return { success: false, error: 'Rate limit exceeded. Try again later or check your quota.' };
+      case 500:
+        return { success: false, error: 'Google API internal error. Try with shorter text.' };
       case 503:
-        return { success: false, error: 'The embedding model is currently overloaded. Please try again in a few moments.' };
+        return { success: false, error: 'Embedding model is temporarily overloaded. Try again in a moment.' };
+      case 504:
+        return { success: false, error: 'Request timed out. Your text may be too large.' };
       default:
         return { success: false, error: `Gemini API error (${response.status}): ${errorMessage}` };
     }

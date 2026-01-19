@@ -667,25 +667,36 @@ ${jobDescription.slice(0, 2000)}`;
 
       switch (response.status) {
         case 400:
-          errorAnalysis.summary = `Invalid request to ${modelId}. The model may not support this request format.`;
-          break;
-        case 401:
-          errorAnalysis.summary = 'Invalid API key. Please check your API key in settings.';
+          // INVALID_ARGUMENT or FAILED_PRECONDITION (free tier not available in country)
+          if (errorMessage.toLowerCase().includes('country') || errorMessage.toLowerCase().includes('region')) {
+            errorAnalysis.summary = 'Gemini API free tier is not available in your country. You may need to enable billing.';
+          } else {
+            errorAnalysis.summary = `Invalid request to ${modelId}. ${errorMessage}`;
+          }
           break;
         case 403:
-          errorAnalysis.summary = `Your API key doesn't have access to ${modelId}. Try a different model.`;
+          // PERMISSION_DENIED
+          errorAnalysis.summary = `Your API key doesn't have permission to use ${modelId}. Check your key or try a different model.`;
           break;
         case 404:
-          errorAnalysis.summary = `Model "${modelId}" not found. It may have been renamed or deprecated. Try a different model.`;
+          // NOT_FOUND
+          errorAnalysis.summary = `Model "${modelId}" not found. It may have been renamed or removed. Try a different model.`;
           break;
         case 429:
-          errorAnalysis.summary = `Rate limit exceeded for ${modelId}. You've hit your daily/minute limit. Try a different model or wait.`;
+          // RESOURCE_EXHAUSTED - Rate limit
+          errorAnalysis.summary = `Rate limit exceeded for ${modelId}. Try a different model or wait for your quota to reset.`;
           break;
         case 500:
-          errorAnalysis.summary = 'Google API server error. Please try again in a moment.';
+          // INTERNAL - Often from excessive context
+          errorAnalysis.summary = 'Google API internal error. Try with a shorter resume/job description or switch models.';
           break;
         case 503:
-          errorAnalysis.summary = `${modelId} is currently overloaded. Please try again in a few moments or switch models.`;
+          // UNAVAILABLE - Service overloaded
+          errorAnalysis.summary = `${modelId} is temporarily overloaded. Try a different model or wait a moment.`;
+          break;
+        case 504:
+          // DEADLINE_EXCEEDED - Request timed out
+          errorAnalysis.summary = 'Request timed out. Your resume or job description may be too large. Try shortening them.';
           break;
         default:
           errorAnalysis.summary = `API error (${response.status}): ${errorMessage}`;
