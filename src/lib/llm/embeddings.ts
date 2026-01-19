@@ -123,15 +123,21 @@ async function generateGeminiEmbedding(
     const errorData = await response.json().catch(() => ({}));
     const errorMessage = (errorData.error as { message?: string })?.message || `HTTP ${response.status}`;
 
-    // Provide user-friendly message for 503 errors
-    if (response.status === 503) {
-      return {
-        success: false,
-        error: 'The AI model is currently overloaded. Please try again in a few moments.'
-      };
+    // Provide specific error messages based on status code
+    switch (response.status) {
+      case 401:
+        return { success: false, error: 'Invalid API key. Please check your API key in settings.' };
+      case 403:
+        return { success: false, error: 'Your API key doesn\'t have access to the embedding model.' };
+      case 404:
+        return { success: false, error: 'Embedding model not found. It may have been deprecated.' };
+      case 429:
+        return { success: false, error: 'Rate limit exceeded. You\'ve hit your daily/minute limit. Try again later.' };
+      case 503:
+        return { success: false, error: 'The embedding model is currently overloaded. Please try again in a few moments.' };
+      default:
+        return { success: false, error: `Gemini API error (${response.status}): ${errorMessage}` };
     }
-
-    return { success: false, error: `Gemini API error: ${errorMessage}` };
   }
 
   const data = await response.json();

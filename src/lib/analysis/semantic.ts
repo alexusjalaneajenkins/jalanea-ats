@@ -660,17 +660,38 @@ ${jobDescription.slice(0, 2000)}`;
       const errorMessage = (errorData.error as { message?: string })?.message || `HTTP ${response.status}`;
 
       // Log the error for debugging
-      console.log(`[AI Analysis] API error: ${response.status} - ${errorMessage}`);
+      console.error(`[AI Analysis] API error: ${response.status} - ${errorMessage}`);
 
-      // Return more descriptive error for 503
-      if (response.status === 503) {
-        return {
-          ...defaultAnalysis,
-          summary: 'The AI model is currently overloaded. Please try again in a few moments.',
-        };
+      // Return specific error messages based on status code
+      const errorAnalysis = { ...defaultAnalysis };
+
+      switch (response.status) {
+        case 400:
+          errorAnalysis.summary = `Invalid request to ${modelId}. The model may not support this request format.`;
+          break;
+        case 401:
+          errorAnalysis.summary = 'Invalid API key. Please check your API key in settings.';
+          break;
+        case 403:
+          errorAnalysis.summary = `Your API key doesn't have access to ${modelId}. Try a different model.`;
+          break;
+        case 404:
+          errorAnalysis.summary = `Model "${modelId}" not found. It may have been renamed or deprecated. Try a different model.`;
+          break;
+        case 429:
+          errorAnalysis.summary = `Rate limit exceeded for ${modelId}. You've hit your daily/minute limit. Try a different model or wait.`;
+          break;
+        case 500:
+          errorAnalysis.summary = 'Google API server error. Please try again in a moment.';
+          break;
+        case 503:
+          errorAnalysis.summary = `${modelId} is currently overloaded. Please try again in a few moments or switch models.`;
+          break;
+        default:
+          errorAnalysis.summary = `API error (${response.status}): ${errorMessage}`;
       }
 
-      return defaultAnalysis;
+      return errorAnalysis;
     }
 
     const data = await response.json();
@@ -706,7 +727,17 @@ ${jobDescription.slice(0, 2000)}`;
       summary: typeof parsed.summary === 'string' ? parsed.summary : defaultAnalysis.summary,
     };
   } catch (error) {
-    return defaultAnalysis;
+    console.error('[AI Analysis] Exception:', error);
+
+    const errorAnalysis = { ...defaultAnalysis };
+
+    if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('network'))) {
+      errorAnalysis.summary = 'Network error. Check your internet connection and try again.';
+    } else if (error instanceof Error) {
+      errorAnalysis.summary = `Error: ${error.message}`;
+    }
+
+    return errorAnalysis;
   }
 }
 
