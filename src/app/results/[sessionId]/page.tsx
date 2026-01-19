@@ -614,6 +614,8 @@ export default function ResultsPage() {
               isLoading={isAnalyzingJD}
               hasResume={true}
               parseScore={scores.parseHealth}
+              hasApiKey={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
+              onOpenApiKeyModal={() => setShowKeyModal(true)}
             />
           </div>
 

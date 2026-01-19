@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Target, ClipboardPaste, Link2, CheckCircle2, Bot, Search, X } from 'lucide-react';
+import { Target, ClipboardPaste, Link2, CheckCircle2, Bot, Search, X, Key, Sparkles } from 'lucide-react';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 
 interface JobDescriptionInputProps {
@@ -24,6 +24,10 @@ interface JobDescriptionInputProps {
   hasResume: boolean;
   /** Parse health score (optional, for contextual messaging) */
   parseScore?: number;
+  /** Whether the API key is configured for AI features */
+  hasApiKey?: boolean;
+  /** Callback to open the API key settings modal */
+  onOpenApiKeyModal?: () => void;
 }
 
 /**
@@ -41,6 +45,8 @@ export function JobDescriptionInput({
   isLoading,
   hasResume,
   parseScore,
+  hasApiKey = false,
+  onOpenApiKeyModal,
 }: JobDescriptionInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showTextarea, setShowTextarea] = useState(false);
@@ -441,6 +447,32 @@ Benefits:
             )}
           </button>
         </div>
+
+        {/* API Key prompt for AI features */}
+        {!hasApiKey && charCount > 50 && onOpenApiKeyModal && (
+          <div className="mt-3 p-3 bg-indigo-900/50 border border-indigo-500/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <div className="p-1.5 bg-cyan-500/20 rounded-lg shrink-0">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white">
+                  Unlock AI-Powered Analysis
+                </p>
+                <p className="text-xs text-indigo-300 mt-0.5">
+                  Add your free Gemini API key to get semantic matching, which finds skills you have that match the job using different terminology.
+                </p>
+                <button
+                  onClick={onOpenApiKeyModal}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  Add API Key
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

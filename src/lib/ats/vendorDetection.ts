@@ -157,6 +157,56 @@ export const ATS_VENDORS: Record<string, ATSVendor> = {
     },
     icon: '🧠',
   },
+  // Job Boards (not traditional ATS, but have their own application systems)
+  indeed: {
+    id: 'indeed',
+    name: 'Indeed',
+    type: 'processor',
+    description: 'Job board with Easy Apply. Applications go to employer\'s email or their ATS.',
+    guidance: {
+      focus: ['Parse Health', 'Recruiter Search', 'Knockout Risk'],
+      explanation:
+        'Indeed is a job board, not an ATS. Your application is forwarded to the employer. Focus on keyword matching and meeting all requirements since the employer may use any ATS.',
+    },
+    icon: '🔍',
+  },
+  linkedin: {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    type: 'processor',
+    description: 'Professional network with Easy Apply. Applications forwarded to employer.',
+    guidance: {
+      focus: ['Parse Health', 'Recruiter Search', 'Knockout Risk'],
+      explanation:
+        'LinkedIn Easy Apply sends your profile to the employer. The company may use any ATS to process applications. Focus on keywords and requirements.',
+    },
+    icon: '💼',
+  },
+  ziprecruiter: {
+    id: 'ziprecruiter',
+    name: 'ZipRecruiter',
+    type: 'sorter',
+    aiAddon: 'TrafficBoost AI',
+    description: 'Job board with AI matching that ranks candidates for employers.',
+    guidance: {
+      focus: ['Semantic Match', 'Parse Health'],
+      explanation:
+        'ZipRecruiter uses AI to match and rank candidates. Semantic alignment with job requirements improves your visibility to employers.',
+    },
+    icon: '⚡',
+  },
+  glassdoor: {
+    id: 'glassdoor',
+    name: 'Glassdoor',
+    type: 'processor',
+    description: 'Job board with company reviews. Applications forwarded to employer.',
+    guidance: {
+      focus: ['Parse Health', 'Recruiter Search', 'Knockout Risk'],
+      explanation:
+        'Glassdoor forwards applications to employers who may use various ATS systems. Focus on universal best practices.',
+    },
+    icon: '🚪',
+  },
 };
 
 /**
@@ -298,6 +348,69 @@ const URL_PATTERNS: URLPattern[] = [
   {
     vendorId: 'smartrecruiters',
     pattern: /\.smartrecruiters\.com/i,
+    confidence: 'medium',
+  },
+
+  // Indeed patterns
+  {
+    vendorId: 'indeed',
+    pattern: /indeed\.com\/viewjob/i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'indeed',
+    pattern: /indeed\.com\/job\//i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'indeed',
+    pattern: /indeed\.com\/cmp\//i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'indeed',
+    pattern: /indeed\.com\/jobs/i,
+    confidence: 'medium',
+  },
+  {
+    vendorId: 'indeed',
+    pattern: /\.indeed\.com/i,
+    confidence: 'medium',
+  },
+
+  // LinkedIn patterns
+  {
+    vendorId: 'linkedin',
+    pattern: /linkedin\.com\/jobs\/view/i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'linkedin',
+    pattern: /linkedin\.com\/job\//i,
+    confidence: 'high',
+  },
+
+  // ZipRecruiter patterns
+  {
+    vendorId: 'ziprecruiter',
+    pattern: /ziprecruiter\.com\/jobs/i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'ziprecruiter',
+    pattern: /ziprecruiter\.com\/c\//i,
+    confidence: 'high',
+  },
+
+  // Glassdoor patterns
+  {
+    vendorId: 'glassdoor',
+    pattern: /glassdoor\.com\/job-listing/i,
+    confidence: 'high',
+  },
+  {
+    vendorId: 'glassdoor',
+    pattern: /glassdoor\.com\/Job/i,
     confidence: 'medium',
   },
 ];
