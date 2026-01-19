@@ -5,7 +5,6 @@ import {
   Finding,
   FindingSeverity,
   getSeverityLabel,
-  getSeverityColor,
   getCategoryLabel,
   countFindingsBySeverity,
 } from '@/lib/analysis/findings';
@@ -47,11 +46,11 @@ export function FindingsPanel({ findings }: FindingsPanelProps) {
   const hasIssues = issues.length > 0;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-        <h2 className="text-lg font-semibold text-gray-900">Analysis Findings</h2>
-        <p className="text-sm text-gray-500 mt-1">
+      <div className="px-6 py-4 border-b border-indigo-500/20">
+        <h2 className="text-lg font-bold text-white">Analysis Findings</h2>
+        <p className="text-sm text-indigo-300 mt-1">
           {issues.length} issue{issues.length !== 1 ? 's' : ''} found
           {positives.length > 0 && ` • ${positives.length} positive`}
         </p>
@@ -59,7 +58,7 @@ export function FindingsPanel({ findings }: FindingsPanelProps) {
 
       {/* Severity filter tabs */}
       {hasIssues && (
-        <div className="px-6 py-3 border-b border-gray-100 flex gap-2 flex-wrap">
+        <div className="px-6 py-3 border-b border-indigo-500/20 flex gap-2 flex-wrap">
           <FilterButton
             label="All"
             count={issues.length}
@@ -106,18 +105,18 @@ export function FindingsPanel({ findings }: FindingsPanelProps) {
       )}
 
       {/* Findings list */}
-      <div className="divide-y divide-gray-100">
+      <div className="divide-y divide-indigo-500/20">
         {filteredFindings.length === 0 && hasIssues && (
-          <div className="px-6 py-8 text-center text-gray-500">
+          <div className="px-6 py-8 text-center text-indigo-300">
             No {severityFilter} issues found.
           </div>
         )}
 
         {!hasIssues && (
-          <div className="px-6 py-8 text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 mb-3">
+          <div className="px-6 py-5 flex items-center gap-4">
+            <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
               <svg
-                className="w-6 h-6 text-green-600"
+                className="w-5 h-5 text-emerald-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -130,10 +129,12 @@ export function FindingsPanel({ findings }: FindingsPanelProps) {
                 />
               </svg>
             </div>
-            <p className="text-gray-700 font-medium">No issues found!</p>
-            <p className="text-gray-500 text-sm mt-1">
-              Your resume is well-structured for ATS parsing.
-            </p>
+            <div>
+              <p className="text-white font-bold">No issues found</p>
+              <p className="text-indigo-300 text-sm">
+                Your resume structure is optimized for ATS parsing
+              </p>
+            </div>
           </div>
         )}
 
@@ -149,20 +150,20 @@ export function FindingsPanel({ findings }: FindingsPanelProps) {
 
       {/* Positive findings section */}
       {positives.length > 0 && (
-        <div className="border-t border-gray-200 bg-green-50">
-          <div className="px-6 py-3 border-b border-green-100">
-            <h3 className="text-sm font-medium text-green-800">
-              What's Working Well
+        <div className="border-t border-indigo-500/20 bg-emerald-500/10">
+          <div className="px-6 py-3 border-b border-emerald-500/20">
+            <h3 className="text-sm font-bold text-emerald-400">
+              What&apos;s Working Well
             </h3>
           </div>
-          <div className="px-6 py-4 space-y-2">
+          <div className="px-6 py-4 space-y-3">
             {positives.map((finding) => (
               <div
                 key={finding.id}
-                className="flex items-start gap-2 text-sm text-green-700"
+                className="flex items-start gap-3 text-sm text-emerald-300"
               >
                 <svg
-                  className="w-4 h-4 mt-0.5 flex-shrink-0"
+                  className="w-5 h-5 mt-0.5 flex-shrink-0 text-emerald-400"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
@@ -194,46 +195,44 @@ function FindingCard({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const colors = getSeverityColor(finding.severity);
-
   return (
     <div className="px-6 py-4">
       <button
         onClick={onToggle}
-        className="w-full text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-lg"
+        className="w-full text-left focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:ring-offset-2 focus:ring-offset-indigo-900 rounded-lg"
       >
         <div className="flex items-start gap-3">
           {/* Severity indicator */}
           <div
-            className={`flex-shrink-0 w-2 h-2 mt-2 rounded-full ${
+            className={`flex-shrink-0 w-2.5 h-2.5 mt-2 rounded-full ${
               finding.severity === 'critical'
-                ? 'bg-red-500'
+                ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
                 : finding.severity === 'high'
-                  ? 'bg-orange-500'
+                  ? 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]'
                   : finding.severity === 'medium'
-                    ? 'bg-yellow-500'
-                    : 'bg-blue-500'
+                    ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]'
+                    : 'bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)]'
             }`}
           />
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-gray-900">{finding.title}</span>
+              <span className="font-bold text-white">{finding.title}</span>
               <span
-                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`}
+                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${getSeverityColorClasses(finding.severity)}`}
               >
                 {getSeverityLabel(finding.severity)}
               </span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-indigo-400">
                 {getCategoryLabel(finding.category)}
               </span>
             </div>
-            <p className="text-sm text-gray-600 mt-1">{finding.description}</p>
+            <p className="text-sm text-indigo-300 mt-1">{finding.description}</p>
           </div>
 
           {/* Expand icon */}
           <svg
-            className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform ${
+            className={`w-5 h-5 text-indigo-400 flex-shrink-0 transition-transform ${
               isExpanded ? 'rotate-180' : ''
             }`}
             fill="none"
@@ -252,26 +251,44 @@ function FindingCard({
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="mt-4 ml-5 pl-4 border-l-2 border-gray-200 space-y-3">
+        <div className="mt-4 ml-5 pl-4 border-l-2 border-indigo-500/30 space-y-4">
           <div>
-            <h4 className="text-xs font-semibold uppercase text-gray-500 mb-1">
+            <h4 className="text-xs font-bold uppercase text-indigo-400 mb-1">
               Impact
             </h4>
-            <p className="text-sm text-gray-700">{finding.impact}</p>
+            <p className="text-sm text-indigo-200">{finding.impact}</p>
           </div>
 
           {finding.suggestion && (
-            <div className="bg-blue-50 rounded-lg p-3">
-              <h4 className="text-xs font-semibold uppercase text-blue-700 mb-1">
+            <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4">
+              <h4 className="text-xs font-bold uppercase text-cyan-400 mb-1">
                 How to Fix
               </h4>
-              <p className="text-sm text-blue-800">{finding.suggestion}</p>
+              <p className="text-sm text-cyan-200">{finding.suggestion}</p>
             </div>
           )}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Get severity color classes
+ */
+function getSeverityColorClasses(severity: FindingSeverity): string {
+  switch (severity) {
+    case 'critical':
+      return 'bg-red-500/20 text-red-400';
+    case 'high':
+      return 'bg-orange-500/20 text-orange-400';
+    case 'medium':
+      return 'bg-yellow-500/20 text-yellow-400';
+    case 'low':
+      return 'bg-cyan-500/20 text-cyan-400';
+    default:
+      return 'bg-indigo-500/20 text-indigo-400';
+  }
 }
 
 /**
@@ -291,21 +308,27 @@ function FilterButton({
   color?: 'gray' | 'red' | 'orange' | 'yellow' | 'blue';
 }) {
   const colorClasses = {
-    gray: isActive ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-150',
-    red: isActive ? 'bg-red-200 text-red-800' : 'bg-red-100 text-red-600 hover:bg-red-150',
+    gray: isActive
+      ? 'bg-indigo-500/30 text-white border-indigo-400/50'
+      : 'bg-indigo-900/50 text-indigo-300 border-indigo-500/30 hover:bg-indigo-800/50',
+    red: isActive
+      ? 'bg-red-500/30 text-red-300 border-red-400/50'
+      : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20',
     orange: isActive
-      ? 'bg-orange-200 text-orange-800'
-      : 'bg-orange-100 text-orange-600 hover:bg-orange-150',
+      ? 'bg-orange-500/30 text-orange-300 border-orange-400/50'
+      : 'bg-orange-500/10 text-orange-400 border-orange-500/30 hover:bg-orange-500/20',
     yellow: isActive
-      ? 'bg-yellow-200 text-yellow-800'
-      : 'bg-yellow-100 text-yellow-600 hover:bg-yellow-150',
-    blue: isActive ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-600 hover:bg-blue-150',
+      ? 'bg-yellow-500/30 text-yellow-300 border-yellow-400/50'
+      : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20',
+    blue: isActive
+      ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400/50'
+      : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20',
   };
 
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${colorClasses[color]}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border transition-colors ${colorClasses[color]}`}
     >
       {label}
       <span className="opacity-75">({count})</span>

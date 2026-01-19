@@ -2,11 +2,50 @@
  * Keyword Coverage Scorer
  *
  * Calculates how well a resume matches the keywords from a job description.
+ *
+ * Scoring formula:
+ * - Base score: (found critical / total critical) × 100
+ * - Optional bonus: up to +10% for matching optional keywords
+ * - Soft skills bonus: up to +5% for universal soft skills
+ * - Minimum floor: 8% for valid resumes (prevents 0% for field mismatches)
+ * - Maximum cap: 100%
  */
 
 import { KeywordSet } from '../types/session';
 import { Finding } from './findings';
 import { getSynonyms, SKILL_SYNONYMS } from './keywords';
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+/** Minimum score floor for valid resumes */
+const MIN_SCORE_FLOOR = 8;
+
+/** Bonus percentage for optional keywords (added on top of base score) */
+const OPTIONAL_BONUS_MAX = 10;
+
+/** Maximum bonus for soft skill matches */
+const SOFT_SKILL_BONUS_MAX = 5;
+
+/**
+ * Universal soft skills that should always be checked for matches
+ * These are common across most job descriptions
+ */
+const UNIVERSAL_SOFT_SKILLS = [
+  'communication',
+  'problem solving',
+  'problem-solving',
+  'analytical',
+  'teamwork',
+  'collaboration',
+  'leadership',
+  'attention to detail',
+  'time management',
+  'organization',
+  'adaptability',
+  'critical thinking',
+];
 
 /**
  * Coverage calculation result
@@ -26,6 +65,12 @@ export interface CoverageResult {
 
 /**
  * Calculates keyword coverage between a resume and job description keywords.
+ *
+ * Scoring:
+ * - Base = (found critical / total critical) × 100
+ * - +10% max for optional keywords
+ * - +5% max for soft skills
+ * - Floor: 8%, Cap: 100%
  */
 export function calculateCoverage(
   resumeText: string,
@@ -72,7 +117,7 @@ export function calculateCoverage(
     };
   }
 
-  // Normalize resume text for matching
+  // Normalize texts for matching
   const normalizedResume = normalizeForMatching(resumeText);
 
   // Check critical keywords
@@ -82,18 +127,41 @@ export function calculateCoverage(
     'critical'
   );
 
-  // Check optional keywords (bonus)
+  // Check optional keywords
   const optionalResults = checkKeywords(
     normalizedResume,
     keywords.optional,
     'optional'
   );
 
-  // Calculate score based on critical keywords
+  // Check soft skills (always checked, provides bonus)
+  const softSkillMatches = checkSoftSkills(normalizedResume);
+
+  // Calculate base score from critical keywords (same as original formula)
   const totalCritical = keywords.critical.length;
   const foundCritical = criticalResults.found.length;
-  const score =
-    totalCritical > 0 ? Math.round((foundCritical / totalCritical) * 100) : 100;
+  const baseScore = totalCritical > 0
+    ? (foundCritical / totalCritical) * 100
+    : 100; // If no critical keywords, perfect match
+
+  // Calculate optional keyword bonus (up to 10% extra)
+  const totalOptional = keywords.optional.length;
+  const foundOptional = optionalResults.found.length;
+  const optionalBonus = totalOptional > 0
+    ? (foundOptional / totalOptional) * OPTIONAL_BONUS_MAX
+    : 0;
+
+  // Soft skills bonus (up to 5% extra)
+  const softSkillBonus = Math.min(
+    softSkillMatches.length * 1, // 1% per soft skill match
+    SOFT_SKILL_BONUS_MAX
+  );
+
+  // Calculate raw score: base + bonuses
+  const rawScore = baseScore + optionalBonus + softSkillBonus;
+
+  // Apply minimum floor for valid resumes, cap at 100
+  const score = Math.round(Math.min(Math.max(rawScore, MIN_SCORE_FLOOR), 100));
 
   // Generate findings for missing critical keywords
   const findings: Finding[] = [];
@@ -112,55 +180,77 @@ export function calculateCoverage(
     });
   });
 
-  // Add summary finding
-  if (score === 100) {
+  // Add summary finding based on score
+  if (score >= 90) {
     findings.unshift({
-      id: 'all-keywords-found',
+      id: 'excellent-keyword-match',
       category: 'keyword',
       severity: 'info',
       title: 'Excellent Keyword Match',
-      description: 'All critical keywords from the job description were found in your resume.',
+      description: `Found ${foundCritical} of ${totalCritical} critical keywords. Strong alignment with this role.`,
       impact: 'Your resume is well-aligned with this job posting.',
     });
-  } else if (score >= 80) {
+  } else if (score >= 70) {
     findings.unshift({
       id: 'good-keyword-match',
       category: 'keyword',
       severity: 'info',
       title: 'Good Keyword Coverage',
-      description: `Found ${foundCritical} of ${totalCritical} critical keywords (${score}%).`,
+      description: `Found ${foundCritical} of ${totalCritical} critical keywords (${score}% match).`,
       impact: 'Your resume covers most key requirements.',
     });
-  } else if (score >= 50) {
+  } else if (score >= 40) {
     findings.unshift({
       id: 'moderate-keyword-match',
       category: 'keyword',
       severity: 'medium',
       title: 'Moderate Keyword Coverage',
-      description: `Found ${foundCritical} of ${totalCritical} critical keywords (${score}%).`,
+      description: `Found ${foundCritical} of ${totalCritical} critical keywords (${score}% match).`,
       impact: 'Consider adding missing keywords if they match your experience.',
     });
-  } else {
+  } else if (score >= 20) {
     findings.unshift({
       id: 'low-keyword-match',
       category: 'keyword',
       severity: 'high',
       title: 'Low Keyword Coverage',
-      description: `Found only ${foundCritical} of ${totalCritical} critical keywords (${score}%).`,
+      description: `Found only ${foundCritical} of ${totalCritical} critical keywords (${score}% match).`,
       impact:
         'Your resume may not be surfaced by ATS for this role. Consider if this job is a good match.',
     });
+  } else {
+    findings.unshift({
+      id: 'minimal-keyword-match',
+      category: 'keyword',
+      severity: 'high',
+      title: 'Minimal Keyword Match',
+      description: `Found only ${foundCritical} of ${totalCritical} critical keywords. This role may not align with your background.`,
+      impact:
+        'This job appears to be in a different field from your experience. Consider roles that better match your skills.',
+    });
   }
 
-  // Add bonus info for optional keywords found
+  // Add info about optional keywords found
   if (optionalResults.found.length > 0) {
     findings.push({
       id: 'bonus-keywords-found',
       category: 'keyword',
       severity: 'info',
-      title: 'Bonus Keywords Found',
-      description: `Your resume also includes ${optionalResults.found.length} nice-to-have keywords: ${optionalResults.found.slice(0, 5).join(', ')}${optionalResults.found.length > 5 ? '...' : ''}.`,
+      title: 'Nice-to-Have Keywords Found',
+      description: `Your resume includes ${optionalResults.found.length} preferred qualifications: ${optionalResults.found.slice(0, 5).join(', ')}${optionalResults.found.length > 5 ? '...' : ''}.`,
       impact: 'These additional matches strengthen your application.',
+    });
+  }
+
+  // Add info about soft skills (if any matched and not already in critical/optional)
+  if (softSkillMatches.length > 0) {
+    findings.push({
+      id: 'soft-skills-found',
+      category: 'keyword',
+      severity: 'info',
+      title: 'Transferable Skills Detected',
+      description: `Found ${softSkillMatches.length} universal soft skills: ${softSkillMatches.slice(0, 4).join(', ')}${softSkillMatches.length > 4 ? '...' : ''}.`,
+      impact: 'Soft skills are valued across all roles and contribute to your match score.',
     });
   }
 
@@ -168,9 +258,31 @@ export function calculateCoverage(
     score,
     foundKeywords: criticalResults.found,
     missingKeywords: criticalResults.missing,
-    bonusKeywords: optionalResults.found,
+    bonusKeywords: [...optionalResults.found, ...softSkillMatches],
     findings,
   };
+}
+
+/**
+ * Checks for universal soft skills in the resume text.
+ * These provide a bonus regardless of the job description.
+ */
+function checkSoftSkills(normalizedText: string): string[] {
+  const found: string[] = [];
+
+  for (const skill of UNIVERSAL_SOFT_SKILLS) {
+    const normalizedSkill = skill.toLowerCase();
+    if (normalizedText.includes(normalizedSkill)) {
+      // Capitalize for display
+      const displayName = skill
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      found.push(displayName);
+    }
+  }
+
+  return found;
 }
 
 /**

@@ -15,7 +15,9 @@ html {
 }
 
 body {
-  background: linear-gradient(135deg, #0c0a1d 0%, #1a1333 25%, #0f172a 50%, #1e1b4b 75%, #0c0a1d 100%);
+  /* Dark mode optimized: #121212 base (not pure black) for reduced eye strain */
+  background: linear-gradient(135deg, #121218 0%, #1a1333 25%, #0f172a 50%, #1e1b4b 75%, #121218 100%);
+  /* Text: #E0E0E0 equivalent (not pure white) for accessibility */
   color: #e0e7ff;
   font-family: var(--font-sans);
   min-height: 100%;
@@ -98,6 +100,38 @@ body {
   50% { background-position: 100% 50%; }
 }
 
+/* Celebration animation for high scores (>85) */
+@keyframes celebrate {
+  0% { transform: scale(1); }
+  15% { transform: scale(1.08); }
+  30% { transform: scale(1); }
+  45% { transform: scale(1.04); }
+  60% { transform: scale(1); }
+  100% { transform: scale(1); }
+}
+
+/* Attention pulse for low scores (<50) - draws user attention */
+@keyframes attention-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Subtle glow animation for score reveal */
+@keyframes score-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Animation utilities */
 .animate-float {
   animation: float 6s ease-in-out infinite;
@@ -126,6 +160,18 @@ body {
 .animate-gradient {
   background-size: 200% 200%;
   animation: gradient-shift 4s ease infinite;
+}
+
+.animate-celebrate {
+  animation: celebrate 0.6s ease-out;
+}
+
+.animate-attention-pulse {
+  animation: attention-pulse 2s ease-in-out infinite;
+}
+
+.animate-score-reveal {
+  animation: score-reveal 0.5s ease-out;
 }
 
 /* Stagger delays */
@@ -163,6 +209,25 @@ body {
   box-shadow:
     0 0 20px rgba(6, 182, 212, 0.4),
     0 0 40px rgba(6, 182, 212, 0.2);
+}
+
+/* Card hover glow effect */
+.card-hover-glow {
+  transition: box-shadow 0.3s ease;
+}
+
+.card-hover-glow:hover {
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.2);
+}
+
+/* Success glow for high scores */
+.glow-success {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+/* Warning glow for attention needed */
+.glow-warning {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
 }
 
 /* Text glow */

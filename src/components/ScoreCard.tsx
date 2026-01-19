@@ -15,63 +15,64 @@ export function ScoreCard({ scores }: ScoreCardProps) {
   const grade = scoreToGrade(scores.parseHealth);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
       {/* Main score */}
-      <div className="p-6 text-center border-b border-gray-100">
-        <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">
+      <div className="p-6 text-center border-b border-indigo-500/20">
+        <h2 className="text-sm font-bold text-indigo-300 uppercase tracking-wide mb-4">
           Parse Health Score
         </h2>
 
         <div className="relative inline-flex items-center justify-center">
           {/* Circular progress */}
-          <svg className="w-32 h-32 transform -rotate-90">
+          <svg className="w-36 h-36 transform -rotate-90">
             {/* Background circle */}
             <circle
-              cx="64"
-              cy="64"
-              r="56"
+              cx="72"
+              cy="72"
+              r="60"
               fill="none"
-              stroke="#e5e7eb"
+              stroke="rgba(99, 102, 241, 0.2)"
               strokeWidth="12"
             />
             {/* Progress circle */}
             <circle
-              cx="64"
-              cy="64"
-              r="56"
+              cx="72"
+              cy="72"
+              r="60"
               fill="none"
               stroke={getScoreColor(scores.parseHealth)}
               strokeWidth="12"
               strokeLinecap="round"
-              strokeDasharray={`${(scores.parseHealth / 100) * 352} 352`}
+              strokeDasharray={`${(scores.parseHealth / 100) * 377} 377`}
               className="transition-all duration-1000 ease-out"
+              style={{ filter: `drop-shadow(0 0 8px ${getScoreColor(scores.parseHealth)}40)` }}
             />
           </svg>
 
           {/* Score text */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-4xl font-bold text-gray-900">
+            <span className="text-3xl font-black text-white">
               {scores.parseHealth}
             </span>
             <span
-              className={`text-lg font-semibold ${getGradeColor(grade)}`}
+              className={`text-sm font-bold ${getGradeColor(grade)}`}
             >
-              {grade}
+              {getStatusLabel(grade)}
             </span>
           </div>
         </div>
 
-        <p className="text-sm text-gray-500 mt-4">
+        <p className="text-sm text-indigo-300 mt-4">
           {getScoreDescription(scores.parseHealth)}
         </p>
       </div>
 
       {/* Sub-scores */}
-      <div className="p-4 bg-gray-50">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+      <div className="p-5 bg-indigo-950/30">
+        <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wide mb-4">
           Breakdown
         </h3>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <SubScore
             label="Layout & Structure"
             score={scores.layoutScore}
@@ -119,18 +120,19 @@ function SubScore({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="text-gray-400">{icon}</div>
+      <div className="text-indigo-400">{icon}</div>
       <div className="flex-1">
-        <div className="flex items-center justify-between text-sm mb-1">
-          <span className="text-gray-700">{label}</span>
-          <span className="font-medium text-gray-900">{score}</span>
+        <div className="flex items-center justify-between text-sm mb-1.5">
+          <span className="text-indigo-200">{label}</span>
+          <span className="font-bold text-white">{score}</span>
         </div>
-        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-2 bg-indigo-950/50 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500"
             style={{
               width: `${score}%`,
               backgroundColor: getScoreColor(score),
+              boxShadow: `0 0 8px ${getScoreColor(score)}60`,
             }}
           />
         </div>
@@ -150,22 +152,38 @@ function getScoreColor(score: number): string {
 }
 
 /**
+ * Gets the status label for display.
+ */
+function getStatusLabel(grade: string): string {
+  switch (grade) {
+    case 'Excellent':
+      return 'ATS Ready';
+    case 'Good':
+      return 'Almost There';
+    case 'Fair':
+      return 'Needs Work';
+    case 'Poor':
+      return 'Major Issues';
+    default:
+      return grade;
+  }
+}
+
+/**
  * Gets the color class for a grade.
  */
 function getGradeColor(grade: string): string {
   switch (grade) {
-    case 'A':
-      return 'text-green-600';
-    case 'B':
-      return 'text-green-500';
-    case 'C':
-      return 'text-yellow-600';
-    case 'D':
-      return 'text-orange-600';
-    case 'F':
-      return 'text-red-600';
+    case 'Excellent':
+      return 'text-emerald-400';
+    case 'Good':
+      return 'text-cyan-400';
+    case 'Fair':
+      return 'text-yellow-400';
+    case 'Poor':
+      return 'text-red-400';
     default:
-      return 'text-gray-600';
+      return 'text-indigo-300';
   }
 }
 
@@ -173,10 +191,8 @@ function getGradeColor(grade: string): string {
  * Gets a description for a score.
  */
 function getScoreDescription(score: number): string {
-  if (score >= 90) return 'Excellent! Your resume is highly ATS-compatible.';
-  if (score >= 80) return 'Great job! Your resume should parse well in most systems.';
-  if (score >= 70) return 'Good, but there is room for improvement.';
-  if (score >= 60) return 'Some issues may affect ATS parsing.';
-  if (score >= 50) return 'Multiple issues detected that could hurt your chances.';
+  if (score >= 90) return 'Your resume structure is perfect. Now optimize keywords with a job description.';
+  if (score >= 75) return 'Great structure! A few tweaks could make it even better.';
+  if (score >= 50) return 'Some formatting issues may affect how ATS reads your resume.';
   return 'Significant issues that likely prevent proper ATS parsing.';
 }

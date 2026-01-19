@@ -272,7 +272,7 @@ export function UploadDropzone({
               </p>
               <p className="text-sm text-indigo-300 mt-1">or click to browse</p>
               <p className="text-xs text-indigo-400 mt-3">
-                Supported: PDF, DOCX • Max 10MB
+                Supported: PDF, DOCX, TXT • Max 10MB
               </p>
             </div>
           )}

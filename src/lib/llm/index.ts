@@ -66,3 +66,13 @@ export {
   updateConsent,
   getOrCreateConfig,
 } from './storage';
+
+// Embeddings
+export {
+  generateEmbedding,
+  cosineSimilarity,
+  calculateSemanticSimilarity,
+  calculateSectionSimilarities,
+} from './embeddings';
+
+export type { EmbeddingResult, SimilarityResult } from './embeddings';

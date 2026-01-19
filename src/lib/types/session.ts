@@ -40,8 +40,8 @@ export type AnalysisSession = {
 export type ResumeArtifact = {
   /** Original filename */
   fileName: string;
-  /** File type: PDF or DOCX */
-  fileType: 'pdf' | 'docx';
+  /** File type: PDF, DOCX, or TXT */
+  fileType: 'pdf' | 'docx' | 'txt';
   /** File size in bytes */
   fileSizeBytes: number;
 

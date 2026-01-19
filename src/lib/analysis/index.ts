@@ -17,3 +17,27 @@ export {
   getRiskLabel,
 } from './knockoutRisk';
 export type { RiskLevel, KnockoutRiskResult } from './knockoutRisk';
+export { calculateRecruiterSearch } from './recruiterSearch';
+export type { RecruiterSearchResult } from './recruiterSearch';
+export {
+  calculateSemanticMatch,
+  isSemanticMatchAvailable,
+  getSemanticMatchLabel,
+  getSemanticMatchColor,
+} from './semantic';
+export type { SemanticMatchResult, SubScore } from './semantic';
+export {
+  enhanceKnockoutsWithResume,
+  detectExperienceKnockout,
+  buildResumeProfile,
+  extractExperienceRequirement,
+  extractEducationRequirement,
+  extractLocationRequirement,
+} from './knockoutAnalysis';
+export type {
+  EnhancedKnockoutItem,
+  ExperienceRequirement,
+  EducationRequirement,
+  LocationRequirement,
+  ResumeProfile,
+} from './knockoutAnalysis';

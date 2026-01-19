@@ -2,17 +2,31 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X } from 'lucide-react';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
-import { ScoreCard } from '@/components/ScoreCard';
+import { ScoreCardGrid } from '@/components/scores';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { JobDescriptionInput } from '@/components/JobDescriptionInput';
 import { KnockoutChecklist } from '@/components/KnockoutChecklist';
 import { KeywordCoveragePanel } from '@/components/KeywordCoveragePanel';
+import { RecruiterSearchPanel } from '@/components/RecruiterSearchPanel';
+import { SemanticMatchPanel } from '@/components/SemanticMatchPanel';
 import { AiFeaturesPanel } from '@/components/AiFeaturesPanel';
+import { JobMatchSummary } from '@/components/JobMatchSummary';
+import { JobMatchStepper } from '@/components/JobMatchStepper';
 import { ByokKeyModal } from '@/components/ByokKeyModal';
 import { ConsentModal } from '@/components/ConsentModal';
 import { ExportButtons } from '@/components/ExportButtons';
+import { LearnTab } from '@/components/education';
+import { VendorGuidance } from '@/components/ats';
 import { ExportableSession } from '@/lib/export/report';
+import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
+import { historyStore } from '@/lib/storage/historyStore';
+import { ScoreSnapshot, JobMetadata } from '@/lib/types/history';
+import { HistoryDashboard } from '@/components/history';
+import { ComparisonView } from '@/components/comparison';
 import { AnalysisSession, scoreToGrade, KnockoutItem, KeywordSet } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import {
@@ -21,12 +35,79 @@ import {
   detectKnockouts,
   calculateCoverage,
   calculateKnockoutRisk,
+  calculateRecruiterSearch,
+  calculateSemanticMatch,
+  isSemanticMatchAvailable,
+  enhanceKnockoutsWithResume,
+  detectExperienceKnockout,
   CoverageResult,
   KnockoutRiskResult,
+  RecruiterSearchResult,
+  SemanticMatchResult,
+  EnhancedKnockoutItem,
   Finding,
 } from '@/lib/analysis';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
 import { LlmConfig } from '@/lib/llm/types';
+
+/**
+ * Extracts a job title from job description text
+ */
+function extractJobTitle(text: string): string | undefined {
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  if (lines.length === 0) return undefined;
+
+  // First non-empty line is often the title
+  const firstLine = lines[0].trim();
+
+  // Clean up common patterns
+  const cleaned = firstLine
+    .replace(/^(job title|position|role):\s*/i, '')
+    .replace(/\s*[-|]\s*.*$/, '') // Remove company after dash or pipe
+    .trim();
+
+  // Limit length
+  if (cleaned.length > 80) {
+    return cleaned.substring(0, 77) + '...';
+  }
+
+  return cleaned || undefined;
+}
+
+/**
+ * Extracts company name from job URL (for detected vendors)
+ */
+function extractCompanyFromVendor(url: string): string | undefined {
+  if (!url) return undefined;
+
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+    const pathname = urlObj.pathname;
+
+    // Greenhouse: boards.greenhouse.io/COMPANY
+    if (hostname.includes('greenhouse.io')) {
+      const match = pathname.match(/^\/([^/]+)/);
+      if (match) return match[1].replace(/-/g, ' ');
+    }
+
+    // Lever: jobs.lever.co/COMPANY
+    if (hostname.includes('lever.co')) {
+      const match = pathname.match(/^\/([^/]+)/);
+      if (match) return match[1].replace(/-/g, ' ');
+    }
+
+    // Workday: COMPANY.wd5.myworkdayjobs.com
+    if (hostname.includes('myworkdayjobs.com')) {
+      const match = hostname.match(/^([^.]+)\./);
+      if (match) return match[1].replace(/-/g, ' ');
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Results Page
@@ -42,24 +123,48 @@ export default function ResultsPage() {
   const [session, setSession] = useState<AnalysisSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'findings' | 'jobmatch' | 'preview'>('findings');
+  const [activeTab, setActiveTab] = useState<'findings' | 'jobmatch' | 'preview' | 'learn' | 'compare'>('findings');
 
   // Job description state
   const [jobText, setJobText] = useState('');
+  const [jobUrl, setJobUrl] = useState('');
+  const [vendorResult, setVendorResult] = useState<VendorDetectionResult | null>(null);
   const [isAnalyzingJD, setIsAnalyzingJD] = useState(false);
   const [keywords, setKeywords] = useState<KeywordSet | null>(null);
-  const [knockouts, setKnockouts] = useState<KnockoutItem[]>([]);
+  const [knockouts, setKnockouts] = useState<(KnockoutItem | EnhancedKnockoutItem)[]>([]);
   const [coverage, setCoverage] = useState<CoverageResult | null>(null);
   const [knockoutRisk, setKnockoutRisk] = useState<KnockoutRiskResult | null>(null);
+  const [recruiterSearch, setRecruiterSearch] = useState<RecruiterSearchResult | null>(null);
+  const [semanticMatch, setSemanticMatch] = useState<SemanticMatchResult | null>(null);
+  const [isAnalyzingSemantic, setIsAnalyzingSemantic] = useState(false);
+
+  // Handle job URL change and detect vendor
+  const handleJobUrlChange = useCallback((url: string) => {
+    setJobUrl(url);
+    if (url) {
+      const result = detectATSVendor(url);
+      setVendorResult(result);
+    } else {
+      setVendorResult(null);
+    }
+  }, []);
 
   // BYOK (AI Features) state
   const { config: llmConfig, updateConfig, setConsent } = useLlmConfig();
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
 
+  // History state
+  const [showHistory, setShowHistory] = useState(false);
+  const [historySaved, setHistorySaved] = useState(false);
+
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
     await updateConfig(newConfig);
+    // If user added an API key but hasn't consented yet, show consent modal
+    if (newConfig.apiKey && !newConfig.hasConsented) {
+      setShowConsentModal(true);
+    }
   };
 
   // Handle consent
@@ -87,6 +192,18 @@ export default function ResultsPage() {
 
     loadSession();
   }, [sessionId]);
+
+  // Handle Escape key for modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showHistory) {
+        setShowHistory(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showHistory]);
 
   // Run resume analysis (memoized)
   const analysis = useMemo(() => {
@@ -126,9 +243,28 @@ export default function ResultsPage() {
       const extractedKeywords = extractKeywords(jobText);
       setKeywords(extractedKeywords);
 
-      // Detect knockouts
+      // Detect knockouts and enhance with resume analysis
       const detectedKnockouts = detectKnockouts(jobText);
-      setKnockouts(detectedKnockouts);
+
+      // Enhance knockouts with auto-assessment based on resume
+      const enhancedKnockouts = enhanceKnockoutsWithResume(
+        detectedKnockouts,
+        session.resume.extractedText,
+        jobText
+      );
+
+      // Check for experience requirement knockout
+      const experienceKnockout = detectExperienceKnockout(
+        session.resume.extractedText,
+        jobText
+      );
+
+      // Combine all knockouts
+      const allKnockouts = experienceKnockout
+        ? [...enhancedKnockouts, experienceKnockout]
+        : enhancedKnockouts;
+
+      setKnockouts(allKnockouts);
 
       // Calculate coverage
       const coverageResult = calculateCoverage(
@@ -137,18 +273,71 @@ export default function ResultsPage() {
       );
       setCoverage(coverageResult);
 
+      // Calculate recruiter search score
+      const recruiterSearchResult = calculateRecruiterSearch(
+        session.resume.extractedText,
+        jobText,
+        extractedKeywords
+      );
+      setRecruiterSearch(recruiterSearchResult);
+
       // Calculate initial knockout risk (all unconfirmed)
-      const riskResult = calculateKnockoutRisk(detectedKnockouts);
+      const riskResult = calculateKnockoutRisk(allKnockouts);
       setKnockoutRisk(riskResult);
+
+      // Calculate semantic match if BYOK is configured
+      if (llmConfig && isSemanticMatchAvailable(llmConfig)) {
+        setIsAnalyzingSemantic(true);
+        try {
+          const semanticResult = await calculateSemanticMatch(
+            session.resume.extractedText,
+            jobText,
+            llmConfig
+          );
+          setSemanticMatch(semanticResult);
+        } catch (err) {
+          console.error('Error calculating semantic match:', err);
+        } finally {
+          setIsAnalyzingSemantic(false);
+        }
+      }
 
       // Switch to job match tab
       setActiveTab('jobmatch');
+
+      // Auto-save to history
+      if (!historySaved && session) {
+        try {
+          // Get parse health from the resume analysis
+          const resumeAnalysis = analyzeResume(session.resume);
+          const scoreSnapshot: ScoreSnapshot = {
+            parseHealth: resumeAnalysis.scores.parseHealth,
+            knockoutRisk: riskResult?.risk || 'low',
+            semanticMatch: undefined, // Will be set after semantic analysis
+            recruiterSearch: recruiterSearchResult?.score,
+            keywordCoverage: coverageResult.score,
+          };
+
+          const jobMeta: JobMetadata | undefined = jobText.trim() ? {
+            title: extractJobTitle(jobText),
+            company: vendorResult?.vendor ? extractCompanyFromVendor(jobUrl) : undefined,
+            url: jobUrl || undefined,
+            atsVendor: vendorResult?.vendor || undefined,
+            keywordCount: extractedKeywords.all.length,
+          } : undefined;
+
+          await historyStore.saveFromSession(session, scoreSnapshot, jobMeta);
+          setHistorySaved(true);
+        } catch (err) {
+          console.error('Failed to save to history:', err);
+        }
+      }
     } catch (err) {
       console.error('Error analyzing job description:', err);
     } finally {
       setIsAnalyzingJD(false);
     }
-  }, [session, jobText]);
+  }, [session, jobText, llmConfig, historySaved, vendorResult, jobUrl]);
 
   // Handle knockout confirmation change
   const handleKnockoutChange = useCallback(
@@ -171,10 +360,10 @@ export default function ResultsPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading analysis results...</p>
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-indigo-300">Loading analysis results...</p>
         </div>
       </div>
     );
@@ -183,11 +372,11 @@ export default function ResultsPage() {
   // Error state
   if (error || !session || !analysis) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center max-w-md mx-auto px-4">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg
-              className="w-8 h-8 text-red-500"
+              className="w-8 h-8 text-red-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -200,11 +389,11 @@ export default function ResultsPage() {
               />
             </svg>
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Session Not Found</h1>
-          <p className="text-gray-600 mb-6">{error}</p>
+          <h1 className="text-xl font-bold text-white mb-2">Session Not Found</h1>
+          <p className="text-indigo-300 mb-6">{error}</p>
           <button
-            onClick={() => router.push('/analyze')}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={() => router.push('/')}
+            className="bg-gradient-to-r from-orange-500 to-pink-500 text-white px-6 py-2 rounded-xl font-medium hover:opacity-90 transition-opacity"
           >
             Analyze New Resume
           </button>
@@ -237,48 +426,91 @@ export default function ResultsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <a href="/analyze" className="hover:text-gray-700 transition-colors">
-              Analyze
-            </a>
-            <span>/</span>
-            <span>Results</span>
+    <div className="min-h-screen text-indigo-100 overflow-x-hidden">
+      {/* Navigation */}
+      <nav className="relative z-50 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-3"
+        >
+          <Link href="/" className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+            </div>
+            <span className="text-2xl font-black tracking-tight">
+              <span className="text-white">Jalanea</span>
+              <span className="text-orange-400"> ATS</span>
+            </span>
+          </Link>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-3"
+        >
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30 hover:border-indigo-500/50 transition-colors"
+          >
+            <History className="w-4 h-4" />
+            <span className="font-medium hidden sm:inline">History</span>
+          </button>
+          <div className="hidden md:flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
+            <Moon className="w-4 h-4 text-yellow-400" />
+            <span className="font-medium">Free forever</span>
           </div>
+        </motion.div>
+      </nav>
+
+      {/* Main content */}
+      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-24 pt-4">
+        {/* Header with breadcrumb */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Upload</span>
+          </Link>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">Analysis Results</h1>
+            <h1 className="text-3xl font-black text-white">Analysis Results</h1>
             {exportSession && <ExportButtons session={exportSession} compact />}
           </div>
-        </div>
+        </motion.div>
 
         {/* File info card */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <div className="flex items-center gap-3">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card rounded-2xl p-4 mb-6"
+        >
+          <div className="flex items-center gap-4">
             <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                resume.fileType === 'pdf' ? 'bg-red-100' : 'bg-blue-100'
+              className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                resume.fileType === 'pdf'
+                  ? 'bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30'
+                  : 'bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30'
               }`}
             >
-              <svg
-                className={`w-5 h-5 ${
-                  resume.fileType === 'pdf' ? 'text-red-600' : 'text-blue-600'
+              <FileText
+                className={`w-6 h-6 ${
+                  resume.fileType === 'pdf' ? 'text-red-400' : 'text-blue-400'
                 }`}
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              />
             </div>
             <div>
-              <h2 className="font-medium text-gray-900">{resume.fileName}</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="font-bold text-white">{resume.fileName}</h2>
+              <p className="text-sm text-indigo-300">
                 {formatFileSize(resume.fileSizeBytes)} •{' '}
                 {resume.fileType.toUpperCase()} •{' '}
                 {resume.extractionMeta.pageCount
@@ -290,21 +522,49 @@ export default function ResultsPage() {
               </p>
             </div>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Score Cards Grid - Full Width */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mb-6"
+        >
+          <ScoreCardGrid
+            scores={scores}
+            knockoutRisk={knockoutRisk?.risk || 'low'}
+            knockoutCount={knockouts.filter(k => k.userConfirmed === false || k.userConfirmed === undefined).length}
+            semanticMatch={semanticMatch?.success ? semanticMatch.score : undefined}
+            isSemanticLoading={isAnalyzingSemantic}
+            recruiterSearch={recruiterSearch?.score}
+            hasByokConfigured={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
+            hasJobDescription={jobText.trim().length > 50}
+            onConfigureByok={() => setShowKeyModal(true)}
+            onAddJobDescription={() => {
+              // Scroll to JD input
+              document.getElementById('job-description-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+        </motion.div>
 
         {/* Main content grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left column - Score Card & JD Input */}
-          <div className="lg:col-span-1 space-y-6">
-            <ScoreCard scores={scores} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+        >
+          {/* Left column - JD Input & PDF Signals */}
+          <div className="lg:col-span-1 space-y-6" id="job-description-section">
 
             {/* Layout signals (if PDF) */}
             {resume.extractionMeta.pdfSignals && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5">
+                <h3 className="text-sm font-bold text-white mb-4">
                   PDF Layout Signals
                 </h3>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <SignalRow
                     label="Columns"
                     value={resume.extractionMeta.pdfSignals.estimatedColumns.toString()}
@@ -313,11 +573,13 @@ export default function ResultsPage() {
                         ? 'good'
                         : 'warn'
                     }
+                    tooltip="Number of text columns detected. Single-column layouts parse most reliably."
                   />
                   <SignalRow
                     label="Column Risk"
                     value={capitalize(resume.extractionMeta.pdfSignals.columnMergeRisk)}
                     status={riskToStatus(resume.extractionMeta.pdfSignals.columnMergeRisk)}
+                    tooltip="Risk that multi-column text gets merged incorrectly, scrambling your content."
                   />
                   <SignalRow
                     label="Header Risk"
@@ -325,6 +587,7 @@ export default function ResultsPage() {
                     status={riskToStatus(
                       resume.extractionMeta.pdfSignals.headerContactRisk
                     )}
+                    tooltip="Risk that contact info in headers/footers gets missed by ATS parsers."
                   />
                   <SignalRow
                     label="Text Density"
@@ -334,6 +597,7 @@ export default function ResultsPage() {
                         ? 'warn'
                         : 'good'
                     }
+                    tooltip="Ratio of text to whitespace. Low density may indicate images or graphics with embedded text."
                   />
                 </div>
               </div>
@@ -343,43 +607,47 @@ export default function ResultsPage() {
             <JobDescriptionInput
               jobText={jobText}
               onJobTextChange={setJobText}
+              jobUrl={jobUrl}
+              onJobUrlChange={handleJobUrlChange}
+              vendorResult={vendorResult}
               onAnalyze={handleAnalyzeJD}
               isLoading={isAnalyzingJD}
               hasResume={true}
+              parseScore={scores.parseHealth}
             />
           </div>
 
           {/* Right column - Tabs */}
           <div className="lg:col-span-2">
             {/* Tab buttons */}
-            <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1">
+            <div className="flex gap-1 mb-4 bg-indigo-950/80 backdrop-blur-sm rounded-xl p-1.5 border border-indigo-500/20">
               <button
                 onClick={() => setActiveTab('findings')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
                   activeTab === 'findings'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
                 }`}
               >
                 Findings
               </button>
               <button
                 onClick={() => setActiveTab('jobmatch')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
                   activeTab === 'jobmatch'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
                 }`}
               >
                 Job Match
                 {coverage && (
                   <span
-                    className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
+                    className={`ml-2 px-2 py-0.5 text-xs rounded-full font-bold ${
                       coverage.score >= 80
-                        ? 'bg-green-100 text-green-700'
+                        ? 'bg-emerald-500/30 text-emerald-300'
                         : coverage.score >= 50
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-red-100 text-red-700'
+                          ? 'bg-yellow-500/30 text-yellow-300'
+                          : 'bg-red-500/30 text-red-300'
                     }`}
                   >
                     {coverage.score}%
@@ -388,13 +656,33 @@ export default function ResultsPage() {
               </button>
               <button
                 onClick={() => setActiveTab('preview')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
                   activeTab === 'preview'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
                 }`}
               >
                 Preview
+              </button>
+              <button
+                onClick={() => setActiveTab('learn')}
+                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
+                  activeTab === 'learn'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
+                }`}
+              >
+                Learn
+              </button>
+              <button
+                onClick={() => setActiveTab('compare')}
+                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
+                  activeTab === 'compare'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
+                }`}
+              >
+                Compare
               </button>
             </div>
 
@@ -402,58 +690,46 @@ export default function ResultsPage() {
             {activeTab === 'findings' && <FindingsPanel findings={findings} />}
 
             {activeTab === 'jobmatch' && (
-              <div className="space-y-6">
+              <div className="space-y-4">
+                {/* Vendor Guidance (if detected) */}
+                {vendorResult?.detected && (
+                  <VendorGuidance
+                    vendor={vendorResult.vendor || null}
+                    confidence={vendorResult.confidence}
+                    compact={!!coverage}
+                  />
+                )}
+
                 {!coverage ? (
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg
-                        className="w-8 h-8 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
+                  <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-8 text-center">
+                    <div className="w-16 h-16 bg-indigo-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-500/30">
+                      <FileText className="w-8 h-8 text-indigo-400" />
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                    <h3 className="text-lg font-bold text-white mb-2">
                       No Job Description Analyzed
                     </h3>
-                    <p className="text-gray-500 text-sm max-w-md mx-auto">
+                    <p className="text-indigo-300 text-sm max-w-md mx-auto">
                       Paste a job description in the panel on the left and click
                       "Analyze Job Match" to see how well your resume matches the
                       requirements.
                     </p>
                   </div>
                 ) : (
-                  <>
-                    <KeywordCoveragePanel coverage={coverage} />
-                    <KnockoutChecklist
-                      knockouts={knockouts}
-                      onKnockoutChange={handleKnockoutChange}
-                      riskLevel={knockoutRisk?.risk || 'low'}
-                      riskExplanation={
-                        knockoutRisk?.explanation ||
-                        'No disqualifier requirements detected.'
-                      }
-                    />
-                    {/* AI Features Panel (BYOK) */}
-                    <AiFeaturesPanel
-                      config={llmConfig}
-                      resumeText={resume.extractedText}
-                      jobDescriptionText={jobText}
-                      criticalKeywords={keywords?.critical || []}
-                      optionalKeywords={keywords?.optional || []}
-                      matchedKeywords={coverage?.foundKeywords || []}
-                      missingKeywords={coverage?.missingKeywords || []}
-                      onConfigureClick={() => setShowKeyModal(true)}
-                      onConsentClick={() => setShowConsentModal(true)}
-                    />
-                  </>
+                  <JobMatchStepper
+                    semanticMatch={semanticMatch || undefined}
+                    recruiterSearch={recruiterSearch || undefined}
+                    coverage={coverage}
+                    knockoutRisk={knockoutRisk || undefined}
+                    knockouts={knockouts}
+                    keywords={keywords}
+                    llmConfig={llmConfig}
+                    resumeText={resume.extractedText}
+                    jobDescriptionText={jobText}
+                    onKnockoutChange={handleKnockoutChange}
+                    onConfigureClick={() => setShowKeyModal(true)}
+                    onConsentClick={() => setShowConsentModal(true)}
+                    isAnalyzingSemantic={isAnalyzingSemantic}
+                  />
                 )}
               </div>
             )}
@@ -466,31 +742,114 @@ export default function ResultsPage() {
                 maxHeight={600}
               />
             )}
+
+            {activeTab === 'learn' && (
+              <LearnTab />
+            )}
+
+            {activeTab === 'compare' && (
+              <ComparisonView
+                resumeText={resume.extractedText}
+                resumeFileName={resume.fileName}
+                onAnalyzeJob={async (jobDescText) => {
+                  // Extract keywords
+                  const extractedKeywords = extractKeywords(jobDescText);
+
+                  // Calculate coverage
+                  const coverageResult = calculateCoverage(
+                    resume.extractedText,
+                    extractedKeywords
+                  );
+
+                  // Calculate recruiter search score
+                  const recruiterSearchResult = calculateRecruiterSearch(
+                    resume.extractedText,
+                    jobDescText,
+                    extractedKeywords
+                  );
+
+                  // Detect and enhance knockouts
+                  const detectedKnockouts = detectKnockouts(jobDescText);
+                  const enhancedKnockouts = enhanceKnockoutsWithResume(
+                    detectedKnockouts,
+                    resume.extractedText,
+                    jobDescText
+                  );
+                  const experienceKnockout = detectExperienceKnockout(
+                    resume.extractedText,
+                    jobDescText
+                  );
+                  const allKnockouts = experienceKnockout
+                    ? [...enhancedKnockouts, experienceKnockout]
+                    : enhancedKnockouts;
+
+                  // Calculate knockout risk
+                  const riskResult = calculateKnockoutRisk(allKnockouts);
+
+                  // Get parse health from the resume analysis
+                  const resumeAnalysis = analyzeResume(session.resume);
+
+                  // Calculate semantic match if available
+                  let semanticScore: number | undefined;
+                  if (llmConfig && isSemanticMatchAvailable(llmConfig)) {
+                    try {
+                      const semanticResult = await calculateSemanticMatch(
+                        resume.extractedText,
+                        jobDescText,
+                        llmConfig
+                      );
+                      if (semanticResult.success) {
+                        semanticScore = semanticResult.score;
+                      }
+                    } catch (err) {
+                      console.error('Error calculating semantic match:', err);
+                    }
+                  }
+
+                  return {
+                    scores: {
+                      parseHealth: resumeAnalysis.scores.parseHealth,
+                      knockoutRisk: riskResult.risk,
+                      semanticMatch: semanticScore,
+                      recruiterSearch: recruiterSearchResult.score,
+                      keywordCoverage: coverageResult.score,
+                    },
+                    matchedKeywords: coverageResult.foundKeywords,
+                    missingKeywords: coverageResult.missingKeywords,
+                  };
+                }}
+                hasSemanticAnalysis={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
+              />
+            )}
           </div>
-        </div>
+        </motion.div>
 
         {/* Actions */}
-        <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+          className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
+        >
           <button
-            onClick={() => router.push('/analyze')}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={() => router.push('/')}
+            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg"
           >
             Analyze Another Resume
           </button>
-        </div>
+        </motion.div>
 
         {/* Privacy reminder */}
-        <div className="mt-8 text-center text-xs text-gray-400 flex items-center justify-center gap-1">
-          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Your data stays in your browser. Nothing was uploaded to our servers.
-        </div>
-      </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="mt-8 text-center text-xs text-indigo-400 flex items-center justify-center gap-2"
+        >
+          <Shield className="w-4 h-4" />
+          <span>Your data stays in your browser. Nothing was uploaded to our servers.</span>
+        </motion.div>
+      </main>
 
       {/* BYOK Modals */}
       <ByokKeyModal
@@ -506,26 +865,71 @@ export default function ResultsPage() {
         onConsent={handleConsent}
         providerName={llmConfig?.provider === 'gemini' ? 'Google Gemini' : 'the AI provider'}
       />
+
+      {/* History Modal */}
+      {showHistory && (
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-modal-title"
+        >
+          <div className="min-h-screen px-4 py-8">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowHistory(false)}
+              aria-hidden="true"
+            />
+
+            {/* Modal Content */}
+            <div className="relative z-10 max-w-4xl mx-auto">
+              <div className="bg-indigo-950 rounded-2xl border border-indigo-500/30 shadow-2xl overflow-hidden">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-indigo-500/20">
+                  <h2 id="history-modal-title" className="text-lg font-bold text-white">Analysis History</h2>
+                  <button
+                    onClick={() => setShowHistory(false)}
+                    className="p-2 rounded-lg text-indigo-400 hover:text-indigo-300 hover:bg-indigo-800/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    aria-label="Close history modal"
+                  >
+                    <X className="w-5 h-5" aria-hidden="true" />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-6 max-h-[70vh] overflow-y-auto">
+                  <HistoryDashboard onClose={() => setShowHistory(false)} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * Signal row component for displaying PDF layout signals.
+ * Signal row component for displaying PDF layout signals with optional tooltip.
  */
 function SignalRow({
   label,
   value,
   status,
+  tooltip,
 }: {
   label: string;
   value: string;
   status: 'good' | 'warn' | 'risk';
+  tooltip?: string;
 }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+
   const statusColors = {
-    good: 'text-green-600',
-    warn: 'text-amber-600',
-    risk: 'text-red-600',
+    good: 'text-emerald-400',
+    warn: 'text-amber-400',
+    risk: 'text-red-400',
   };
 
   const statusIcons = {
@@ -560,9 +964,23 @@ function SignalRow({
 
   return (
     <div className="flex items-center justify-between text-sm">
-      <span className="text-gray-600">{label}</span>
-      <div className={`flex items-center gap-1 ${statusColors[status]}`}>
-        <span className="font-medium">{value}</span>
+      <div className="relative">
+        <span
+          className={`text-indigo-300 ${tooltip ? 'cursor-help border-b border-dashed border-indigo-500/50' : ''}`}
+          onMouseEnter={() => tooltip && setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          {label}
+        </span>
+        {tooltip && showTooltip && (
+          <div className="absolute z-50 bottom-full left-0 mb-2 px-3 py-2 text-xs text-white bg-indigo-900 border border-indigo-500/50 rounded-lg shadow-xl max-w-[200px] whitespace-normal">
+            {tooltip}
+            <div className="absolute top-full left-4 w-2 h-2 bg-indigo-900 border-r border-b border-indigo-500/50 transform rotate-45 -translate-y-1" />
+          </div>
+        )}
+      </div>
+      <div className={`flex items-center gap-1.5 ${statusColors[status]}`}>
+        <span className="font-bold">{value}</span>
         {statusIcons[status]}
       </div>
     </div>

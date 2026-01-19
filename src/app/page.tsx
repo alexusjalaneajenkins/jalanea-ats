@@ -10,6 +10,7 @@ import { twMerge } from 'tailwind-merge';
 import { UploadDropzone } from '@/components/UploadDropzone';
 import { parsePdf, PdfParseError } from '@/lib/parsers/pdf';
 import { parseDocx, DocxParseError } from '@/lib/parsers/docx';
+import { parseTxt, TxtParseError } from '@/lib/parsers/txt';
 import { createSession, ResumeArtifact } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 
@@ -131,6 +132,7 @@ export default function HomePage() {
           fileName.endsWith('.docx') ||
           fileName.endsWith('.doc') ||
           file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const isTxt = fileName.endsWith('.txt') || file.type === 'text/plain';
 
         if (isPdf) {
           // Parse PDF
@@ -142,8 +144,11 @@ export default function HomePage() {
         } else if (isDocx) {
           // Parse DOCX
           resumeArtifact = await parseDocx(file);
+        } else if (isTxt) {
+          // Parse TXT
+          resumeArtifact = await parseTxt(file);
         } else {
-          throw new Error('Unsupported file type. Please upload a PDF or DOCX file.');
+          throw new Error('Unsupported file type. Please upload a PDF, DOCX, or TXT file.');
         }
 
         // Create a session
@@ -157,7 +162,7 @@ export default function HomePage() {
       } catch (err) {
         console.error('Error parsing file:', err);
 
-        if (err instanceof PdfParseError || err instanceof DocxParseError) {
+        if (err instanceof PdfParseError || err instanceof DocxParseError || err instanceof TxtParseError) {
           setError(err.message);
         } else if (err instanceof Error) {
           setError(err.message);
@@ -288,6 +293,8 @@ export default function HomePage() {
                 '.doc',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'application/msword',
+                '.txt',
+                'text/plain',
               ]}
             />
 
