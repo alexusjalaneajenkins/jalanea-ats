@@ -189,10 +189,10 @@ export function ByokKeyModal({
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-lg mx-4 bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden"
+          className="relative w-full max-w-lg mx-4 bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden max-h-[90vh] flex flex-col"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50 shrink-0">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-amber-500/10 rounded-lg">
                 <Key className="w-5 h-5 text-amber-400" />
@@ -210,7 +210,7 @@ export function ByokKeyModal({
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-slate-700/50">
+          <div className="flex border-b border-slate-700/50 shrink-0">
             <button
               onClick={() => setActiveTab('key')}
               className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
@@ -234,7 +234,7 @@ export function ByokKeyModal({
           </div>
 
           {/* Content */}
-          <div className="p-6">
+          <div className="p-6 overflow-y-auto flex-1">
             {activeTab === 'key' ? (
               <div className="space-y-6">
                 {/* Provider Selection */}
@@ -454,7 +454,7 @@ export function ByokKeyModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-slate-700/50 flex justify-end gap-3">
+          <div className="px-6 py-4 border-t border-slate-700/50 flex justify-end gap-3 shrink-0">
             <button
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
