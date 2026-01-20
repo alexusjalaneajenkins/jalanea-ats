@@ -41,6 +41,5 @@ yarn-error.log*
 next-env.d.ts
 
 # Test files
-TESTING.md
 test-resumes/
 testing/
