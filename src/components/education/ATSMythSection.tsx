@@ -92,7 +92,7 @@ export function ATSMythSection() {
     <div className="pt-4 space-y-4">
       {/* Key Insight */}
       <div className="p-4 bg-gradient-to-r from-orange-500/10 to-pink-500/10 rounded-xl border border-orange-500/20">
-        <p className="text-sm text-indigo-200">
+        <p className="text-sm text-indigo-200 prose-readable">
           <span className="font-bold text-orange-400">Key insight: </span>
           ATS systems are filing cabinets, not gatekeepers. Your resume isn't "rejected by the ATS"—
           it's either parsed correctly (filed properly) or not. The human recruiter does the actual selecting.
@@ -121,7 +121,7 @@ export function ATSMythSection() {
                   <p className="text-sm font-medium text-white mb-2">
                     "{item.myth}"
                   </p>
-                  <p className="text-sm text-indigo-300">
+                  <p className="text-sm text-indigo-200">
                     {item.reality}
                   </p>
                 </div>
@@ -134,10 +134,10 @@ export function ATSMythSection() {
       {/* Bottom Line */}
       <div className="p-4 bg-indigo-950/50 rounded-xl border border-indigo-500/20">
         <h4 className="text-sm font-bold text-white mb-2">The Bottom Line</h4>
-        <p className="text-sm text-indigo-300">
+        <p className="text-sm text-indigo-200">
           Stop trying to "beat" the ATS. Instead, focus on:
         </p>
-        <ul className="mt-2 space-y-1 text-sm text-indigo-300">
+        <ul className="mt-2 space-y-1 text-sm text-indigo-200">
           <li className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <span>Clean formatting that parses correctly</span>

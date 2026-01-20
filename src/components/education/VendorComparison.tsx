@@ -72,7 +72,7 @@ export function VendorComparison() {
     <div className="pt-4 space-y-6">
       {/* Overview */}
       <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl border border-cyan-500/20">
-        <p className="text-sm text-indigo-200">
+        <p className="text-sm text-indigo-200 prose-readable">
           <span className="font-bold text-cyan-400">Important: </span>
           Not all ATS systems work the same way. Knowing which type a company uses
           helps you optimize your application strategy.
@@ -99,7 +99,7 @@ export function VendorComparison() {
             </div>
             <div>
               <h4 className="text-sm font-bold text-white">{category.category}</h4>
-              <p className="text-xs text-indigo-400">{category.description}</p>
+              <p className="text-xs text-indigo-300">{category.description}</p>
             </div>
           </div>
 
@@ -127,11 +127,11 @@ export function VendorComparison() {
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-indigo-500">{system.marketShare}</span>
+                  <span className="text-xs text-indigo-400">{system.marketShare}</span>
                 </div>
 
-                <p className="text-xs text-indigo-300 mb-2">
-                  <span className="text-indigo-400">How it works: </span>
+                <p className="text-xs text-indigo-200 mb-2">
+                  <span className="text-indigo-300 font-medium">How it works: </span>
                   {system.howItWorks}
                 </p>
 

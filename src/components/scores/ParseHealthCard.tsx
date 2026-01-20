@@ -55,15 +55,25 @@ export function ParseHealthCard({
     <div
       className={`
         relative bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 p-4
-        transition-all duration-300 card-hover-glow
+        transition-all duration-300 card-hover-glow cursor-pointer
+        hover:bg-indigo-900/40 hover:scale-[1.02] active:scale-[0.98]
         ${score < 50 ? 'animate-attention-pulse' : ''}
         ${isHighlighted
-          ? 'border-orange-500/50 shadow-lg shadow-orange-500/10'
-          : 'border-indigo-500/30 hover:border-indigo-400/50'
+          ? 'border-orange-500/50 shadow-lg shadow-orange-500/10 hover:shadow-orange-500/20'
+          : 'border-indigo-500/30 hover:border-indigo-400/50 hover:shadow-indigo-500/10'
         }
       `}
-      role="region"
-      aria-label={`Parse Health Score: ${score} out of 100, rated ${label}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => hasSubScores && setIsExpanded(!isExpanded)}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && hasSubScores) {
+          e.preventDefault();
+          setIsExpanded(!isExpanded);
+        }
+      }}
+      aria-label={`Parse Health Score: ${score} out of 100, rated ${label}${hasSubScores ? '. Click to view details.' : ''}`}
+      aria-expanded={hasSubScores ? isExpanded : undefined}
     >
       {/* Highlighted badge */}
       {isHighlighted && (

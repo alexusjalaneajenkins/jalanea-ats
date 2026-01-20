@@ -64,59 +64,81 @@ export function ScoreCardGrid({
         </span>
       </div>
 
-      {/* Score cards grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <ParseHealthCard
-            score={scores.parseHealth}
-            isHighlighted={highlightedScores.includes('parse')}
-          />
-        </motion.div>
+      {/* Score cards grid with groupings */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Technical Compliance Group */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-4 rounded-full bg-gradient-to-b from-blue-400 to-indigo-500" />
+            <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+              Technical Compliance
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <ParseHealthCard
+                score={scores.parseHealth}
+                isHighlighted={highlightedScores.includes('parse')}
+              />
+            </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <KnockoutRiskCard
-            risk={knockoutRisk}
-            flagCount={knockoutCount}
-            isHighlighted={highlightedScores.includes('knockout')}
-          />
-        </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <KnockoutRiskCard
+                risk={knockoutRisk}
+                flagCount={knockoutCount}
+                isHighlighted={highlightedScores.includes('knockout')}
+              />
+            </motion.div>
+          </div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <SemanticMatchCard
-            score={semanticMatch}
-            isLocked={!hasByokConfigured}
-            isLoading={isSemanticLoading}
-            needsJobDescription={hasByokConfigured && !hasJobDescription}
-            onConfigure={onConfigureByok}
-            onAddJobDescription={onAddJobDescription}
-            isHighlighted={highlightedScores.includes('semantic')}
-          />
-        </motion.div>
+        {/* Content Optimization Group */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-4 rounded-full bg-gradient-to-b from-orange-400 to-pink-500" />
+            <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+              Content Optimization
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <SemanticMatchCard
+                score={semanticMatch}
+                isLocked={!hasByokConfigured}
+                isLoading={isSemanticLoading}
+                needsJobDescription={hasByokConfigured && !hasJobDescription}
+                onConfigure={onConfigureByok}
+                onAddJobDescription={onAddJobDescription}
+                isHighlighted={highlightedScores.includes('semantic')}
+              />
+            </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <RecruiterSearchCard
-            score={recruiterSearch}
-            needsJobDescription={!hasJobDescription}
-            onAddJobDescription={onAddJobDescription}
-            isHighlighted={highlightedScores.includes('recruiter')}
-          />
-        </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <RecruiterSearchCard
+                score={recruiterSearch}
+                needsJobDescription={!hasJobDescription}
+                onAddJobDescription={onAddJobDescription}
+                isHighlighted={highlightedScores.includes('recruiter')}
+              />
+            </motion.div>
+          </div>
+        </div>
       </div>
     </div>
   );

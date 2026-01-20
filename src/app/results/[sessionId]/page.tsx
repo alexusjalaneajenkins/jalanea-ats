@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings } from 'lucide-react';
+import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
 import { ScoreCardGrid } from '@/components/scores';
 import { FindingsPanel } from '@/components/FindingsPanel';
@@ -157,6 +157,9 @@ export default function ResultsPage() {
   // History state
   const [showHistory, setShowHistory] = useState(false);
   const [historySaved, setHistorySaved] = useState(false);
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
@@ -481,7 +484,7 @@ export default function ResultsPage() {
       </nav>
 
       {/* Main content */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-24 pt-4">
+      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-32 pt-4">
         {/* Header with breadcrumb */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -567,10 +570,30 @@ export default function ResultsPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+          className={`grid grid-cols-1 gap-6 transition-all duration-300 ${
+            sidebarCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'
+          }`}
         >
-          {/* Left column - JD Input & PDF Signals */}
-          <div className="lg:col-span-1 space-y-6" id="job-description-section">
+          {/* Left column - JD Input & PDF Signals (Collapsible) */}
+          <div
+            className={`transition-all duration-300 ${
+              sidebarCollapsed
+                ? 'lg:hidden'
+                : 'lg:col-span-1 space-y-6'
+            }`}
+            id="job-description-section"
+          >
+            {/* Collapse button for desktop - inside sidebar */}
+            <div className="hidden lg:flex justify-end mb-2">
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-200 bg-indigo-900/50 hover:bg-indigo-800/50 px-3 py-1.5 rounded-lg transition-colors"
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+                <span>Collapse</span>
+              </button>
+            </div>
 
             {/* Layout signals (if PDF) */}
             {resume.extractionMeta.pdfSignals && (
@@ -634,7 +657,21 @@ export default function ResultsPage() {
           </div>
 
           {/* Right column - Tabs */}
-          <div className="lg:col-span-2">
+          <div className={sidebarCollapsed ? 'lg:col-span-1' : 'lg:col-span-2'}>
+            {/* Expand sidebar button (when collapsed) */}
+            {sidebarCollapsed && (
+              <div className="hidden lg:flex mb-4">
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-100 bg-indigo-900/50 hover:bg-indigo-800/50 px-4 py-2 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-colors"
+                  aria-label="Expand sidebar"
+                >
+                  <PanelLeft className="w-4 h-4" />
+                  <span>Show Job Description</span>
+                </button>
+              </div>
+            )}
+
             {/* Tab buttons */}
             <div className="flex gap-1 mb-4 bg-indigo-950/80 backdrop-blur-sm rounded-xl p-1.5 border border-indigo-500/20">
               <button
@@ -840,32 +877,34 @@ export default function ResultsPage() {
           </div>
         </motion.div>
 
-        {/* Actions */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
-        >
-          <button
-            onClick={() => router.push('/')}
-            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg"
-          >
-            Analyze Another Resume
-          </button>
-        </motion.div>
-
         {/* Privacy reminder */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8 text-center text-xs text-indigo-400 flex items-center justify-center gap-2"
+          transition={{ delay: 0.4 }}
+          className="mt-10 text-center text-xs text-indigo-400 flex items-center justify-center gap-2"
         >
           <Shield className="w-4 h-4" />
           <span>Your data stays in your browser. Nothing was uploaded to our servers.</span>
         </motion.div>
       </main>
+
+      {/* Sticky Footer - Analyze Another Resume */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-indigo-950 via-indigo-950/95 to-transparent pt-6 pb-4 pointer-events-none"
+      >
+        <div className="max-w-6xl mx-auto px-6 flex justify-center pointer-events-auto">
+          <button
+            onClick={() => router.push('/')}
+            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 hover:scale-105"
+          >
+            Analyze Another Resume
+          </button>
+        </div>
+      </motion.div>
 
       {/* BYOK Modals */}
       <ByokKeyModal

@@ -31,13 +31,15 @@ export function KnockoutRiskCard({
     <div
       className={`
         relative bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 p-4
-        transition-all duration-300 card-hover-glow
+        transition-all duration-300 card-hover-glow cursor-pointer
+        hover:bg-indigo-900/40 hover:scale-[1.02] active:scale-[0.98]
         ${isHighlighted
-          ? 'border-orange-500/50 shadow-lg shadow-orange-500/10'
-          : 'border-indigo-500/30 hover:border-indigo-400/50'
+          ? 'border-orange-500/50 shadow-lg shadow-orange-500/10 hover:shadow-orange-500/20'
+          : 'border-indigo-500/30 hover:border-indigo-400/50 hover:shadow-indigo-500/10'
         }
       `}
-      role="region"
+      role="button"
+      tabIndex={0}
       aria-label={`Knockout Risk: ${label}. ${flagCount === 0 ? 'No eligibility flags detected' : `${flagCount} potential flags detected`}`}
     >
       {/* Highlighted badge */}
