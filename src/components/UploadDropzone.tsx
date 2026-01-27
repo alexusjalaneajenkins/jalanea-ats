@@ -197,7 +197,7 @@ export function UploadDropzone({
     <div className="w-full">
       <div
         className={`
-          relative rounded-2xl border-2 border-dashed p-8
+          relative rounded-2xl border-2 border-dashed p-4 sm:p-6 md:p-8
           transition-all duration-200 ease-in-out
           cursor-pointer backdrop-blur-sm
           ${getStateStyles()}

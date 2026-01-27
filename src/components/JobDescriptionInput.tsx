@@ -138,8 +138,8 @@ Benefits:
   return (
     <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-indigo-500/20">
-        <div className="flex items-center justify-between">
+      <div className="px-3 sm:px-5 py-3 sm:py-4 border-b border-indigo-500/20">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2">
           <div>
             <h3 className="text-sm font-bold text-white">
               Job Description
@@ -148,7 +148,7 @@ Benefits:
               Paste the job posting to analyze keyword match
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setShowUrlInput(!showUrlInput)}
               className={`
@@ -372,7 +372,7 @@ Benefits:
             onBlur={() => setIsFocused(false)}
             placeholder="Paste the full job description here, including requirements section..."
             className={`
-              w-full min-h-[200px] p-4 text-sm text-indigo-100
+              w-full min-h-[140px] sm:min-h-[180px] md:min-h-[200px] p-3 sm:p-4 text-sm text-indigo-100
               placeholder-indigo-500 resize-y
               border-0 focus:ring-0 focus:outline-none
               bg-indigo-950/30

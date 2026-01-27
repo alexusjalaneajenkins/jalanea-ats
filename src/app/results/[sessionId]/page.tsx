@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings, PanelLeftClose, PanelLeft, ClipboardList } from 'lucide-react';
+import { MobileActionButton } from '@/components/MobileActionButton';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
 import { ScoreCardGrid } from '@/components/scores';
 import { FindingsPanel } from '@/components/FindingsPanel';
@@ -26,7 +27,6 @@ import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import { historyStore } from '@/lib/storage/historyStore';
 import { ScoreSnapshot, JobMetadata } from '@/lib/types/history';
 import { HistoryDashboard } from '@/components/history';
-import { ComparisonView } from '@/components/comparison';
 import { AnalysisSession, scoreToGrade, KnockoutItem, KeywordSet } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import {
@@ -48,6 +48,7 @@ import {
   Finding,
 } from '@/lib/analysis';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
+import { useProgress } from '@/hooks/useProgress';
 import { LlmConfig } from '@/lib/llm/types';
 
 /**
@@ -123,7 +124,7 @@ export default function ResultsPage() {
   const [session, setSession] = useState<AnalysisSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'findings' | 'jobmatch' | 'preview' | 'learn' | 'compare'>('findings');
+  const [activeTab, setActiveTab] = useState<'overview' | 'jobmatch' | 'details'>('overview');
 
   // Job description state
   const [jobText, setJobText] = useState('');
@@ -160,6 +161,9 @@ export default function ResultsPage() {
 
   // Sidebar collapsed state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Progress tracking
+  const { saveSession } = useProgress();
 
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
@@ -307,6 +311,11 @@ export default function ResultsPage() {
 
       // Switch to job match tab
       setActiveTab('jobmatch');
+
+      // Update progress tracking (mark that JD was added)
+      if (session) {
+        saveSession(session.id, session.resume.fileName, true);
+      }
 
       // Auto-save to history
       if (!historySaved && session) {
@@ -570,7 +579,7 @@ export default function ResultsPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className={`grid grid-cols-1 gap-6 transition-all duration-300 ${
+          className={`grid grid-cols-1 gap-4 md:gap-6 transition-all duration-300 ${
             sidebarCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'
           }`}
         >
@@ -672,17 +681,17 @@ export default function ResultsPage() {
               </div>
             )}
 
-            {/* Tab buttons */}
+            {/* Tab buttons - Simplified to 3 tabs */}
             <div className="flex gap-1 mb-4 bg-indigo-950/80 backdrop-blur-sm rounded-xl p-1.5 border border-indigo-500/20">
               <button
-                onClick={() => setActiveTab('findings')}
+                onClick={() => setActiveTab('overview')}
                 className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'findings'
+                  activeTab === 'overview'
                     ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
                     : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
                 }`}
               >
-                Findings
+                Overview
               </button>
               <button
                 onClick={() => setActiveTab('jobmatch')}
@@ -708,39 +717,47 @@ export default function ResultsPage() {
                 )}
               </button>
               <button
-                onClick={() => setActiveTab('preview')}
+                onClick={() => setActiveTab('details')}
                 className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'preview'
+                  activeTab === 'details'
                     ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
                     : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
                 }`}
               >
-                Preview
-              </button>
-              <button
-                onClick={() => setActiveTab('learn')}
-                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'learn'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
-                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
-                }`}
-              >
-                Learn
-              </button>
-              <button
-                onClick={() => setActiveTab('compare')}
-                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'compare'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
-                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
-                }`}
-              >
-                Compare
+                Details
               </button>
             </div>
 
             {/* Tab content */}
-            {activeTab === 'findings' && <FindingsPanel findings={findings} />}
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Findings Panel - Issues and recommendations */}
+                <FindingsPanel findings={findings} />
+
+                {/* Quick next step prompt if no job description yet */}
+                {!coverage && (
+                  <div className="bg-gradient-to-r from-orange-500/10 to-pink-500/10 border border-orange-500/30 rounded-2xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-orange-500/20 rounded-lg">
+                        <ClipboardList className="w-5 h-5 text-orange-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-orange-200">
+                          <span className="font-semibold text-white">Next step:</span>{' '}
+                          Add a job description to see how well your resume matches.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('jobmatch')}
+                        className="shrink-0 px-4 py-2 text-sm bg-orange-500/20 hover:bg-orange-500/30 text-orange-200 rounded-lg border border-orange-500/30 transition-colors"
+                      >
+                        Add Job
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {activeTab === 'jobmatch' && (
               <div className="space-y-4">
@@ -761,10 +778,11 @@ export default function ResultsPage() {
                     <h3 className="text-lg font-bold text-white mb-2">
                       No Job Description Analyzed
                     </h3>
-                    <p className="text-indigo-300 text-sm max-w-md mx-auto">
-                      Paste a job description in the panel on the left and click
-                      "Analyze Job Match" to see how well your resume matches the
-                      requirements.
+                    <p className="text-indigo-300 text-sm max-w-md mx-auto mb-4">
+                      Paste a job description to see how well your resume matches the requirements.
+                    </p>
+                    <p className="text-indigo-400 text-xs">
+                      Use the input panel on the left (or scroll down on mobile)
                     </p>
                   </div>
                 ) : (
@@ -787,92 +805,26 @@ export default function ResultsPage() {
               </div>
             )}
 
-            {activeTab === 'preview' && (
-              <PlainTextPreview
-                text={resume.extractedText}
-                title="Extracted Text"
-                subtitle="This is what ATS software typically extracts from your resume"
-                maxHeight={600}
-              />
-            )}
+            {activeTab === 'details' && (
+              <div className="space-y-6">
+                {/* Raw text preview */}
+                <PlainTextPreview
+                  text={resume.extractedText}
+                  title="What ATS Software Sees"
+                  subtitle="This is the plain text that applicant tracking systems extract from your resume"
+                  maxHeight={400}
+                />
 
-            {activeTab === 'learn' && (
-              <LearnTab />
-            )}
-
-            {activeTab === 'compare' && (
-              <ComparisonView
-                resumeText={resume.extractedText}
-                resumeFileName={resume.fileName}
-                onAnalyzeJob={async (jobDescText) => {
-                  // Extract keywords
-                  const extractedKeywords = extractKeywords(jobDescText);
-
-                  // Calculate coverage
-                  const coverageResult = calculateCoverage(
-                    resume.extractedText,
-                    extractedKeywords
-                  );
-
-                  // Calculate recruiter search score
-                  const recruiterSearchResult = calculateRecruiterSearch(
-                    resume.extractedText,
-                    jobDescText,
-                    extractedKeywords
-                  );
-
-                  // Detect and enhance knockouts
-                  const detectedKnockouts = detectKnockouts(jobDescText);
-                  const enhancedKnockouts = enhanceKnockoutsWithResume(
-                    detectedKnockouts,
-                    resume.extractedText,
-                    jobDescText
-                  );
-                  const experienceKnockout = detectExperienceKnockout(
-                    resume.extractedText,
-                    jobDescText
-                  );
-                  const allKnockouts = experienceKnockout
-                    ? [...enhancedKnockouts, experienceKnockout]
-                    : enhancedKnockouts;
-
-                  // Calculate knockout risk
-                  const riskResult = calculateKnockoutRisk(allKnockouts);
-
-                  // Get parse health from the resume analysis
-                  const resumeAnalysis = analyzeResume(session.resume);
-
-                  // Calculate semantic match if available
-                  let semanticScore: number | undefined;
-                  if (llmConfig && isSemanticMatchAvailable(llmConfig)) {
-                    try {
-                      const semanticResult = await calculateSemanticMatch(
-                        resume.extractedText,
-                        jobDescText,
-                        llmConfig
-                      );
-                      if (semanticResult.success) {
-                        semanticScore = semanticResult.score;
-                      }
-                    } catch (err) {
-                      console.error('Error calculating semantic match:', err);
-                    }
-                  }
-
-                  return {
-                    scores: {
-                      parseHealth: resumeAnalysis.scores.parseHealth,
-                      knockoutRisk: riskResult.risk,
-                      semanticMatch: semanticScore,
-                      recruiterSearch: recruiterSearchResult.score,
-                      keywordCoverage: coverageResult.score,
-                    },
-                    matchedKeywords: coverageResult.foundKeywords,
-                    missingKeywords: coverageResult.missingKeywords,
-                  };
-                }}
-                hasSemanticAnalysis={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
-              />
+                {/* Learn section - collapsed by default */}
+                <details className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
+                  <summary className="p-4 cursor-pointer text-white font-semibold hover:bg-indigo-900/50 transition-colors">
+                    📚 Learn more about ATS systems
+                  </summary>
+                  <div className="p-4 pt-0">
+                    <LearnTab />
+                  </div>
+                </details>
+              </div>
             )}
           </div>
         </motion.div>
@@ -888,6 +840,13 @@ export default function ResultsPage() {
           <span>Your data stays in your browser. Nothing was uploaded to our servers.</span>
         </motion.div>
       </main>
+
+      {/* Mobile FAB - Shows when job description section is out of view */}
+      <MobileActionButton
+        targetId="job-description-section"
+        isComplete={!!coverage}
+        label="Add Job Description"
+      />
 
       {/* Sticky Footer - Analyze Another Resume */}
       <motion.div

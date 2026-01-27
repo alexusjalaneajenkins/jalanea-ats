@@ -137,7 +137,18 @@ export function LearnTab({ highlightedScore }: LearnTabProps) {
             </div>
           </div>
 
-          {/* Progress indicator */}
+          {/* Progress indicator - Mobile compact version */}
+          <div className="flex sm:hidden items-center gap-2">
+            <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+              progressPercent === 100
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : 'bg-orange-500/20 text-orange-400'
+            }`}>
+              {readCount}/{totalSections}
+            </span>
+          </div>
+
+          {/* Progress indicator - Desktop full version */}
           <div className="hidden sm:flex items-center gap-3">
             <div className="text-right">
               <span className="text-xs text-indigo-400">Progress</span>

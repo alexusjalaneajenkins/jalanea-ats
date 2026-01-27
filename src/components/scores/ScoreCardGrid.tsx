@@ -65,7 +65,7 @@ export function ScoreCardGrid({
       </div>
 
       {/* Score cards grid with groupings */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {/* Technical Compliance Group */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -74,7 +74,7 @@ export function ScoreCardGrid({
               Technical Compliance
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:gap-3 gap-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -108,7 +108,7 @@ export function ScoreCardGrid({
               Content Optimization
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:gap-3 gap-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

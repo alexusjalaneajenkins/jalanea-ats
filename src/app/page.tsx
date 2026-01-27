@@ -3,11 +3,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Upload, FileText, Shield, Eye, CheckCircle, Star, Cloud, Moon, Key, Settings } from 'lucide-react';
+import { Sparkles, FileText, Shield, Eye, CheckCircle, Star, Cloud, Moon, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { UploadDropzone } from '@/components/UploadDropzone';
+import { OnboardingModal } from '@/components/OnboardingModal';
+import { ContinuePrompt } from '@/components/ContinuePrompt';
+import { useProgress } from '@/hooks/useProgress';
 import { parsePdf, PdfParseError } from '@/lib/parsers/pdf';
 import { parseDocx, DocxParseError } from '@/lib/parsers/docx';
 import { parseTxt, TxtParseError } from '@/lib/parsers/txt';
@@ -122,6 +125,17 @@ export default function HomePage() {
   const { config: llmConfig, updateConfig, setConsent, isLoading: isLoadingConfig } = useLlmConfig();
   const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
 
+  // Progress tracking for "continue where you left off"
+  const {
+    progress: userProgress,
+    isLoaded: isProgressLoaded,
+    saveSession,
+    clearSession,
+    hasRecentSession,
+    getTimeSinceLastSession,
+  } = useProgress();
+  const [showContinuePrompt, setShowContinuePrompt] = useState(true);
+
   // Handle saving API key
   const handleSaveLlmConfig = useCallback(async (newConfig: Parameters<typeof updateConfig>[0]) => {
     await updateConfig({
@@ -181,6 +195,9 @@ export default function HomePage() {
 
         // Save to store
         await sessionStore.save(session);
+
+        // Save progress for "continue where you left off"
+        saveSession(session.id, file.name, false);
 
         // Navigate to results
         router.push(`/results/${session.id}`);
@@ -294,7 +311,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1] mb-6"
+            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1] mb-6"
           >
             <span className="text-white text-glow">Will your resume</span>{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-pink-500 to-cyan-400">
@@ -313,61 +330,26 @@ export default function HomePage() {
           </motion.p>
         </div>
 
-        {/* API Key Setup Prompt - Show when not configured */}
-        {!isLoadingConfig && !hasApiKey && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
-            className="mb-6 p-5 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-2xl"
-          >
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-amber-500/20 rounded-xl shrink-0">
-                <Key className="w-6 h-6 text-amber-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-white mb-1">
-                  Step 1: Add Your Free API Key
-                </h3>
-                <p className="text-sm text-amber-200/80 mb-4">
-                  Jalanea ATS uses AI to analyze your resume. Add your free Gemini API key to enable all features including semantic matching and detailed analysis.
-                </p>
-                <button
-                  onClick={() => setShowKeyModal(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity shadow-lg"
-                >
-                  <Key className="w-4 h-4" />
-                  Add API Key (Free)
-                </button>
-                <p className="text-xs text-amber-300/60 mt-3">
-                  Get your free API key at{' '}
-                  <a
-                    href="https://aistudio.google.com/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-amber-300"
-                  >
-                    aistudio.google.com/apikey
-                  </a>
-                </p>
-              </div>
-            </div>
-          </motion.div>
+        {/* Continue where you left off prompt */}
+        {isProgressLoaded && hasRecentSession() && userProgress.lastSessionId && userProgress.lastFileName && (
+          <ContinuePrompt
+            isVisible={showContinuePrompt}
+            sessionId={userProgress.lastSessionId}
+            fileName={userProgress.lastFileName}
+            timeSince={getTimeSinceLastSession() || ''}
+            hadJobDescription={userProgress.hadJobDescription}
+            onDismiss={() => setShowContinuePrompt(false)}
+          />
         )}
 
-        {/* Upload Card */}
+        {/* Upload Card - Always enabled, no API key required */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, type: "spring", stiffness: 100 }}
-          className={`glass-card rounded-3xl p-2 mb-10 relative ${!hasApiKey && !isLoadingConfig ? 'opacity-50 pointer-events-none' : ''}`}
+          className="glass-card rounded-3xl p-2 mb-10 relative"
         >
           <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 md:p-8">
-            {!hasApiKey && !isLoadingConfig && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-indigo-950/60 rounded-2xl backdrop-blur-sm">
-                <p className="text-indigo-300 font-medium">Add your API key above to start</p>
-              </div>
-            )}
             <UploadDropzone
               onFileSelect={handleFileSelect}
               isProcessing={isProcessing}
@@ -397,13 +379,68 @@ export default function HomePage() {
           </div>
         </motion.div>
 
+        {/* How it Works - Clear explanation of the tool */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mb-10"
+        >
+          <h2 className="text-lg font-bold text-white mb-4 text-center">How it works</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">1</div>
+              <h3 className="text-sm font-bold text-white mb-1">Upload your resume</h3>
+              <p className="text-xs text-indigo-300">PDF, DOCX, or TXT. Everything stays in your browser.</p>
+            </div>
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">2</div>
+              <h3 className="text-sm font-bold text-white mb-1">See what bots see</h3>
+              <p className="text-xs text-indigo-300">View the plain text that ATS software extracts from your resume.</p>
+            </div>
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">3</div>
+              <h3 className="text-sm font-bold text-white mb-1">Fix issues</h3>
+              <p className="text-xs text-indigo-300">Get specific tips to improve formatting and keyword coverage.</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Optional: API Key for AI Features - Show as enhancement, not requirement */}
+        {!isLoadingConfig && !hasApiKey && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="mb-10 p-4 bg-indigo-900/30 border border-indigo-500/30 rounded-2xl"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
+                <Sparkles className="w-5 h-5 text-indigo-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-indigo-200">
+                  <span className="font-semibold text-white">Want AI-powered insights?</span>{' '}
+                  Add a free API key for semantic matching and advanced analysis.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowKeyModal(true)}
+                className="shrink-0 px-4 py-2 text-sm bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 rounded-lg border border-indigo-500/30 transition-colors"
+              >
+                Add Key
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Feature cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <FeatureCard
             icon={Shield}
             title="Privacy First"
             description="Your resume never leaves your browser. All processing happens locally."
-            delay={0.4}
+            delay={0.45}
           />
           <FeatureCard
             icon={Eye}
@@ -415,7 +452,7 @@ export default function HomePage() {
             icon={CheckCircle}
             title="Actionable Insights"
             description="Get specific recommendations to improve how your resume parses."
-            delay={0.6}
+            delay={0.55}
           />
         </div>
 
@@ -481,6 +518,9 @@ export default function HomePage() {
         onConsent={handleConsent}
         providerName="Google Gemini"
       />
+
+      {/* First-time user onboarding */}
+      <OnboardingModal />
     </div>
   );
 }

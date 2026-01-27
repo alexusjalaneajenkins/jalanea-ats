@@ -74,7 +74,7 @@ export function KnockoutRiskCard({
               <div
                 id="knockout-risk-tooltip"
                 role="tooltip"
-                className="absolute z-50 bottom-full right-0 mb-2 px-3 py-2 text-xs text-white bg-indigo-900 border border-indigo-500/50 rounded-lg shadow-xl w-48 whitespace-normal"
+                className="absolute z-50 bottom-full right-0 mb-2 px-3 py-2 text-xs text-white bg-indigo-900 border border-indigo-500/50 rounded-lg shadow-xl w-40 sm:w-48 max-w-[calc(100vw-2rem)] whitespace-normal"
               >
                 <p className="font-medium mb-1">Knockout questions check:</p>
                 <ul className="text-indigo-300 space-y-0.5">
