@@ -227,23 +227,27 @@ export function ResumeImprover({
 
   if (!isAiAvailable) {
     return (
-      <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-6 text-center">
-        <div className="w-16 h-16 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
-          <Sparkles className="w-8 h-8 text-amber-400" />
+      <>
+        <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-6 text-center">
+          <div className="w-16 h-16 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
+            <Sparkles className="w-8 h-8 text-amber-400" />
+          </div>
+          <h3 className="text-lg font-bold text-white mb-2">Resume Improvement</h3>
+          <p className="text-indigo-300 text-sm max-w-md mx-auto mb-4">
+            Click any bullet point to get AI-powered improvement suggestions. Use the free demo or add your Gemini key to enable this feature.
+          </p>
+          {onConfigureClick && (
+            <button
+              onClick={onConfigureClick}
+              className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg transition-colors text-sm font-medium"
+            >
+              Enable AI Features
+            </button>
+          )}
         </div>
-        <h3 className="text-lg font-bold text-white mb-2">Resume Improvement</h3>
-        <p className="text-indigo-300 text-sm max-w-md mx-auto mb-4">
-          Click any bullet point to get AI-powered improvement suggestions. Use the free demo or add your Gemini key to enable this feature.
-        </p>
-        {onConfigureClick && (
-          <button
-            onClick={onConfigureClick}
-            className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg transition-colors text-sm font-medium"
-          >
-            Enable AI Features
-          </button>
-        )}
-      </div>
+        {/* Keep AnimatePresence mounted to prevent hook count mismatch */}
+        <AnimatePresence />
+      </>
     );
   }
 
