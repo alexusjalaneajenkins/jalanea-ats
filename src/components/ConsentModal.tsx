@@ -4,7 +4,7 @@
  * Consent Modal Component
  *
  * Displays consent flow for BYOK features with clear warnings
- * about data sharing, costs, and responsibilities.
+ * about data sharing, usage limits, and responsibilities.
  */
 
 import { useState } from 'react';
@@ -14,7 +14,6 @@ import {
   Shield,
   AlertTriangle,
   Cloud,
-  DollarSign,
   Eye,
   Lock,
   Check,
@@ -88,8 +87,6 @@ export function ConsentModal({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   const steps = [
     {
       icon: Cloud,
@@ -100,12 +97,12 @@ export function ConsentModal({
       acknowledgmentText: 'I understand my data will be sent to external servers',
     },
     {
-      icon: DollarSign,
-      title: 'API Costs Are Your Responsibility',
-      description: 'Using AI features will consume API credits from your account. Costs depend on usage and the provider\'s pricing.',
-      warning: 'You are responsible for monitoring your API usage and associated costs.',
+      icon: AlertTriangle,
+      title: 'Usage Limits Apply',
+      description: 'AI requests count against the limits of the key you use. The demo key allows a small daily limit, and your own key may have quotas set by Google.',
+      warning: 'If you hit a limit, try again later or switch Gemini models.',
       acknowledgmentKey: 'apiCosts' as const,
-      acknowledgmentText: 'I understand I am responsible for any API costs',
+      acknowledgmentText: 'I understand AI usage limits apply',
     },
     {
       icon: Eye,
@@ -130,7 +127,8 @@ export function ConsentModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
         {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -325,6 +323,7 @@ export function ConsentModal({
           </div>
         </motion.div>
       </div>
+      )}
     </AnimatePresence>
   );
 }

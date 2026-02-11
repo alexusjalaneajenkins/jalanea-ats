@@ -14,8 +14,8 @@ interface OnboardingModalProps {
 const steps = [
   {
     icon: <Key className="w-6 h-6" />,
-    title: 'Add Your API Key',
-    description: 'Get a free Gemini API key from Google AI Studio. This powers the AI analysis features.',
+    title: 'Start with Free AI',
+    description: 'Run up to 3 free AI analyses per day with the built-in demo. Add your own Gemini key anytime for unlimited use.',
     color: 'from-amber-500 to-orange-500',
   },
   {

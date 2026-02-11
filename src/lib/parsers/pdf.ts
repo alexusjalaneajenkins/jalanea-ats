@@ -192,9 +192,10 @@ async function loadPdfJs() {
  * Analyzes PDF layout to detect potential parsing issues.
  */
 function analyzeLayout(pages: ParsedPdfPage[], fileSize: number): PdfLayoutSignals {
-  // Analyze first page (most indicative of layout)
-  const firstPage = pages[0];
-  if (!firstPage || firstPage.items.length === 0) {
+  const pagesToCheck = pages.slice(0, Math.min(3, pages.length));
+  const pagesWithItems = pagesToCheck.filter((page) => page.items.length > 0);
+
+  if (pagesWithItems.length === 0) {
     return {
       estimatedColumns: 1,
       columnMergeRisk: 'low',
@@ -203,11 +204,23 @@ function analyzeLayout(pages: ParsedPdfPage[], fileSize: number): PdfLayoutSigna
     };
   }
 
-  // Column detection
-  const columnInfo = detectColumns(firstPage);
+  const columnSignals = pagesWithItems.map((page) => detectColumns(page));
+  const headerSignals = pagesWithItems.map((page) => analyzeHeaderRisk(page));
 
-  // Header contact risk - check if text in top 15% might be header
-  const headerRisk = analyzeHeaderRisk(firstPage);
+  const riskRank: Record<'low' | 'medium' | 'high', number> = {
+    low: 0,
+    medium: 1,
+    high: 2,
+  };
+
+  const estimatedColumns = Math.max(...columnSignals.map((signal) => signal.columns)) as 1 | 2 | 3;
+  const columnMergeRisk = columnSignals.reduce<'low' | 'medium' | 'high'>((current, signal) => {
+    return riskRank[signal.risk] > riskRank[current] ? signal.risk : current;
+  }, 'low');
+
+  const headerContactRisk = headerSignals.reduce<'low' | 'medium' | 'high'>((current, risk) => {
+    return riskRank[risk] > riskRank[current] ? risk : current;
+  }, 'low');
 
   // Text density - ratio of text bytes to file size
   const totalTextBytes = pages.reduce((sum, p) => sum + p.text.length, 0);
@@ -216,9 +229,9 @@ function analyzeLayout(pages: ParsedPdfPage[], fileSize: number): PdfLayoutSigna
     densityRatio < 0.01 ? 'low' : densityRatio < 0.05 ? 'medium' : 'high';
 
   return {
-    estimatedColumns: columnInfo.columns,
-    columnMergeRisk: columnInfo.risk,
-    headerContactRisk: headerRisk,
+    estimatedColumns,
+    columnMergeRisk,
+    headerContactRisk,
     textDensity,
   };
 }

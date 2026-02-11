@@ -133,7 +133,7 @@ export function AiFeaturesPanel({
 
           <p className="text-slate-300 text-sm mb-4">
             Enable AI-powered features to find semantic matches and get rewrite
-            suggestions. Bring your own API key - we never store it on our servers.
+            suggestions. Add your Gemini API key to unlock these tools.
           </p>
 
           <button
@@ -141,11 +141,11 @@ export function AiFeaturesPanel({
             className="w-full px-4 py-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl flex items-center justify-center gap-2 transition-colors"
           >
             <Key className="w-4 h-4" />
-            <span className="font-medium">Configure API Key</span>
+            <span className="font-medium">Add Gemini Key</span>
           </button>
 
           <p className="text-xs text-slate-500 mt-4 text-center">
-            Your API key stays in your browser. Works with Google Gemini.
+            Your API key stays in your browser. Powered by Gemini.
           </p>
         </div>
       </div>
@@ -342,12 +342,6 @@ export function AiFeaturesPanel({
                 </p>
               </div>
 
-              {/* Cost Notice */}
-              {config?.preferences.showCostEstimates && (
-                <p className="text-xs text-slate-500 text-center">
-                  AI features use your API key. Typical cost: &lt;$0.01 per analysis.
-                </p>
-              )}
             </div>
           </motion.div>
         )}

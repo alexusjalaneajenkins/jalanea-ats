@@ -137,6 +137,49 @@ export async function getUser(): Promise<{ user: User | null; error: string | nu
 }
 
 /**
+ * Update user email
+ * Supabase will send a confirmation email to the new address
+ */
+export async function updateEmail(newEmail: string): Promise<{ error: string | null }> {
+  const supabase = getSupabaseBrowser();
+  if (!supabase) {
+    return { error: 'Auth not configured' };
+  }
+
+  const { error } = await supabase.auth.updateUser({ email: newEmail });
+  return { error: error?.message || null };
+}
+
+/**
+ * Delete user account
+ * This calls a server-side function that handles:
+ * - Canceling any active Stripe subscriptions
+ * - Deleting user data
+ * - Deleting the auth user
+ */
+export async function deleteAccount(): Promise<{ error: string | null }> {
+  const supabase = getSupabaseBrowser();
+  if (!supabase) {
+    return { error: 'Auth not configured' };
+  }
+
+  // Call server-side deletion endpoint
+  const response = await fetch('/api/account/delete', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return { error: data.error || 'Failed to delete account' };
+  }
+
+  // Sign out after deletion
+  await supabase.auth.signOut();
+  return { error: null };
+}
+
+/**
  * Check if user has active subscription
  */
 export async function checkSubscriptionStatus(): Promise<{
@@ -164,7 +207,7 @@ export async function checkSubscriptionStatus(): Promise<{
     .select('status, is_lifetime, current_period_end')
     .eq('user_id', user.id)
     .in('status', ['active', 'trialing'])
-    .order('created_at', { ascending: false })
+    .order('created', { ascending: false })
     .limit(1)
     .single();
 

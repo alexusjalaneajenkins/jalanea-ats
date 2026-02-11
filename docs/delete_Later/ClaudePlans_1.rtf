@@ -1,0 +1,87 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 Menlo-Regular;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red137\green191\blue255;}
+{\*\expandedcolortbl;;\csgray\c0;\cssrgb\c60000\c80000\c100000;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f0\fs22 \cf2 \CocoaLigature0 I'm continuing a sprint on jalanea-ats. Read the plan file\
+   at .claude/plans/lexical-questing-peach.md for the full\
+  approved plan.\
+\
+  Here's where we are:\
+\
+  ## Status\
+  - Phase 1A (rate-limit /api/improve-bullet): NOT STARTED \'97\
+   next up\
+  - Phase 1B (webhook idempotency): NOT STARTED\
+  - Phase 1C (OAuth callback redirect): NOT STARTED\
+  - Phase 1D (useAuth error handling): NOT STARTED\
+  - Phase 2A (success page subscription polling): NOT\
+  STARTED\
+  - Phase 3 (UI cleanup): NOT STARTED\
+  - Phase 4 (build verification + manual tests): NOT STARTED\
+\
+  ## Key Context\
+  - All env vars are set (.env.local has STRIPE_*,\
+  SUPABASE_*, GEMINI_API_KEY)\
+  - Supabase migrations are in supabase/migrations/\
+  (001_stripe_tables.sql, 002_free_tier_usage.sql)\
+  - StepGuide.tsx is confirmed dead code (only\
+  self-references, safe to delete)\
+  - animate-float, animate-bounce-gentle, animate-gradient,\
+  stagger-* CSS classes are unused in source\
+  - /api/improve-bullet is only called from\
+  src/components/ResumeImprover.tsx\
+  - The subscriptions.price_id column has a FK to prices\
+  table which may not be populated\
+\
+  ## What to implement (in order)\
+\
+  **Phase 1A**: Add IP-based daily rate limiting (3/day) to\
+  src/app/api/improve-bullet/route.ts. Reuse the pattern\
+  from src/app/api/analyze-free/route.ts (IP extraction,\
+  hash, daily count via Supabase with in-memory fallback).\
+  Allow through if valid Bearer token exists.\
+\
+  **Phase 1B**: In src/app/api/webhooks/stripe/route.ts \'97\
+  for handleCheckoutCompleted (lifetime), check if\
+  subscription with id=session.id already exists before\
+  upserting. For handleSubscriptionDeleted, skip if status\
+  is already canceled. Set price_id to null instead of\
+  referencing FK.\
+\
+  **Phase 1C**: In src/app/api/auth/callback/route.ts \'97 read\
+   redirect_to query param, use it instead of hardcoded\
+  '/account'.\
+\
+  **Phase 1D**: In src/hooks/useAuth.ts \'97 wrap\
+  checkSubscriptionStatus() in try/catch, add accessError to\
+   state, preserve previous hasAccess on failure.\
+\
+  **Phase 2A**: In src/app/checkout/success/page.tsx \'97\
+  import useAuth, poll refreshAccess every 2s for 15s. Show\
+  verifying \uc0\u8594  verified (confetti) \u8594  delayed states.\
+\
+  **Phase 3**: In src/app/page.tsx \'97 remove FeatureCard\
+  component + grid (lines 24-37, 404-424) and free tier\
+  banner (lines 354-402). In\
+  src/app/results/[sessionId]/page.tsx \'97 remove "Free\
+  forever" badge (lines 551-554), change "API Key \uc0\u10003 "/"Add\
+  API Key" to "AI Settings \uc0\u10003 "/"AI Settings". Delete\
+  src/components/StepGuide.tsx. In src/app/globals.css \'97\
+  remove unused @keyframes (float, bounce-gentle,\
+  gradient-shift, shimmer) and their .animate-* classes plus\
+   .stagger-* classes.\
+\
+  **Phase 4**: Run build + lint + type-check. Document\
+  manual Stripe CLI test steps.\
+\
+  Please start implementing from Phase 1A. Work through each\
+   phase sequentially. Verify with build after each phase.\
+\
+  ---\
+  If your MacBook has the same repo cloned and\
+  \cf3 .claude/plans/\cf2  synced, the plan file reference will work\
+  automatically. If not, the prompt above is self-contained\
+  \'97 it has everything needed.}

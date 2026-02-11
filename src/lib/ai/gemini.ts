@@ -1,4 +1,19 @@
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS, GeminiModel } from '@/lib/llm/types';
+
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const ALLOWED_GEMINI_MODELS = new Set(GEMINI_MODELS.map((model) => model.id));
+
+export function resolveGeminiModel(requestedModel?: string | null): GeminiModel {
+  if (!requestedModel) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+
+  if (ALLOWED_GEMINI_MODELS.has(requestedModel as GeminiModel)) {
+    return requestedModel as GeminiModel;
+  }
+
+  return DEFAULT_GEMINI_MODEL;
+}
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -12,13 +27,16 @@ interface GeminiResponse {
 
 export async function generateATSAnalysis(
   resume: string,
-  jobDescription: string
+  jobDescription: string,
+  model?: string
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.DEMO_GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured');
+    throw new Error('Gemini API key is not configured');
   }
+
+  const selectedModel = resolveGeminiModel(model);
 
   const systemPrompt = `You are an expert ATS (Applicant Tracking System) analyzer. Your job is to analyze resumes against job descriptions and provide detailed, actionable feedback.
 
@@ -92,12 +110,14 @@ ${resume}
 
 Provide your analysis in the JSON format specified.`;
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const response = await fetch(
+    `${GEMINI_API_BASE}/models/${selectedModel}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
       contents: [
         {
           parts: [
@@ -108,9 +128,11 @@ Provide your analysis in the JSON format specified.`;
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
       },
     }),
-  });
+  }
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

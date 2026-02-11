@@ -24,7 +24,7 @@ export interface ATSAnalysisResult {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { resume, jobDescription } = body;
+    const { resume, jobDescription, model } = body;
 
     if (!resume || !jobDescription) {
       return NextResponse.json(
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await generateATSAnalysis(resume, jobDescription);
+    const response = await generateATSAnalysis(resume, jobDescription, model);
 
     // Parse the JSON response from DeepSeek with multiple strategies
     let result: ATSAnalysisResult;

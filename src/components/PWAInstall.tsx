@@ -72,13 +72,10 @@ export function PWAInstall() {
     localStorage.setItem('pwa-install-dismissed', 'true');
   };
 
-  if (!showBanner || dismissed || !installPrompt) {
-    return null;
-  }
-
   return (
     <AnimatePresence>
-      <motion.div
+      {showBanner && !dismissed && installPrompt && (
+        <motion.div
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 100, opacity: 0 }}
@@ -121,6 +118,7 @@ export function PWAInstall() {
           </div>
         </div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 }

@@ -200,7 +200,7 @@ export const GEMINI_MODELS: GeminiModelInfo[] = [
   {
     id: 'gemini-2.5-flash-lite',
     displayName: 'Gemini 2.5 Flash Lite',
-    description: 'Faster and cheaper. Good for high volume.',
+    description: 'Lightweight and fast. Great for quick checks.',
     pricing: { input: 0.10, output: 0.40 },
   },
 ];
@@ -257,7 +257,7 @@ export const DEFAULT_LLM_CONFIG: LlmConfig = {
     enableSemanticMatching: true,
     enableRewriteSuggestions: true,
     enableBiasReview: true,
-    showCostEstimates: true,
+    showCostEstimates: false,
   },
 };
 
@@ -272,7 +272,7 @@ export interface ConsentAcknowledgments {
   /** User understands data will be sent to third-party API */
   dataSharing: boolean;
 
-  /** User understands API costs are their responsibility */
+  /** User understands API usage limits are their responsibility */
   apiCosts: boolean;
 
   /** User understands LLM suggestions should be reviewed */

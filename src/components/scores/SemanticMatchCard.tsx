@@ -168,10 +168,10 @@ function LockedState({ onConfigure }: { onConfigure?: () => void }) {
         <button
           onClick={onConfigure}
           className="text-sm font-bold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 px-3 py-1.5 rounded-full hover:from-purple-500/30 hover:to-pink-500/30 transition-colors flex items-center gap-1.5 mx-auto focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-          aria-label="Add API key to enable semantic matching"
+          aria-label="Add Gemini key to enable semantic matching"
         >
           <Key className="w-3.5 h-3.5" aria-hidden="true" />
-          Add API Key
+          Add Gemini Key
         </button>
       </div>
     </>

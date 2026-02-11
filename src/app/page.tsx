@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, Eye, CheckCircle, Star, Cloud, Moon, Settings } from 'lucide-react';
+import { Sparkles, Settings, Gift, User, CreditCard, Lightbulb, FileText, Lock, Zap, Cloud } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { UploadDropzone } from '@/components/UploadDropzone';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ContinuePrompt } from '@/components/ContinuePrompt';
@@ -17,95 +16,9 @@ import { parseTxt, TxtParseError } from '@/lib/parsers/txt';
 import { createSession, ResumeArtifact } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
+import { useFreeTier } from '@/hooks/useFreeTier';
 import { ByokKeyModal } from '@/components/ByokKeyModal';
 import { ConsentModal } from '@/components/ConsentModal';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-// --- Floating Stars Background ---
-const FloatingStars = () => {
-  const [stars, setStars] = useState<Array<{ id: number; size: number; x: number; y: number; delay: number; duration: number }>>([]);
-
-  useEffect(() => {
-    setStars(Array.from({ length: 25 }, (_, i) => ({
-      id: i,
-      size: Math.random() * 4 + 2,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      delay: Math.random() * 3,
-      duration: Math.random() * 3 + 2,
-    })));
-  }, []);
-
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {stars.map((s) => (
-        <motion.div
-          key={s.id}
-          className="absolute"
-          style={{ left: `${s.x}%`, top: `${s.y}%` }}
-          animate={{ opacity: [0.2, 0.8, 0.2], scale: [1, 1.3, 1] }}
-          transition={{ duration: s.duration, delay: s.delay, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <Star className="text-yellow-300" style={{ width: s.size, height: s.size }} fill="currentColor" />
-        </motion.div>
-      ))}
-    </div>
-  );
-};
-
-// --- Floating Cloud Elements ---
-const FloatingClouds = () => (
-  <>
-    <motion.div
-      className="absolute top-[15%] left-[5%] text-indigo-800/30"
-      animate={{ x: [0, 20, 0], y: [0, -10, 0] }}
-      transition={{ duration: 8, repeat: Infinity }}
-    >
-      <Cloud className="w-20 h-20" />
-    </motion.div>
-    <motion.div
-      className="absolute top-[25%] right-[8%] text-purple-800/20"
-      animate={{ x: [0, -15, 0], y: [0, 10, 0] }}
-      transition={{ duration: 10, repeat: Infinity }}
-    >
-      <Cloud className="w-28 h-28" />
-    </motion.div>
-  </>
-);
-
-// --- Sticker Component ---
-const Sticker = ({ children, rotate = 0, className = '' }: { children: React.ReactNode; rotate?: number; className?: string }) => (
-  <motion.div
-    initial={{ scale: 0, rotate: rotate - 20 }}
-    animate={{ scale: 1, rotate }}
-    transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.5 }}
-    className={cn(
-      "absolute px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wide shadow-lg",
-      className
-    )}
-  >
-    {children}
-  </motion.div>
-);
-
-// --- Feature Card ---
-const FeatureCard = ({ icon: Icon, title, description, delay }: { icon: React.ElementType; title: string; description: string; delay: number }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay }}
-    className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 hover:border-indigo-400/50 transition-all"
-  >
-    <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-3">
-      <Icon className="w-5 h-5 text-indigo-300" />
-    </div>
-    <h3 className="text-sm font-bold text-white mb-1">{title}</h3>
-    <p className="text-xs text-indigo-300">{description}</p>
-  </motion.div>
-);
 
 /**
  * Home Page - Main entry point for Jalanea ATS
@@ -122,15 +35,20 @@ export default function HomePage() {
   const [showConsentModal, setShowConsentModal] = useState(false);
 
   // API key configuration
-  const { config: llmConfig, updateConfig, setConsent, isLoading: isLoadingConfig } = useLlmConfig();
+  const { config: llmConfig, updateConfig, setConsent } = useLlmConfig();
   const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+
+  // Free tier status
+  const freeTier = useFreeTier();
+
+  // Auth status
+  const { user, hasAccess } = useAuth();
 
   // Progress tracking for "continue where you left off"
   const {
     progress: userProgress,
     isLoaded: isProgressLoaded,
     saveSession,
-    clearSession,
     hasRecentSession,
     getTimeSinceLastSession,
   } = useProgress();
@@ -138,12 +56,11 @@ export default function HomePage() {
 
   // Handle saving API key
   const handleSaveLlmConfig = useCallback(async (newConfig: Parameters<typeof updateConfig>[0]) => {
-    await updateConfig({
-      ...newConfig,
-      hasConsented: false,
-    });
+    await updateConfig(newConfig);
     setShowKeyModal(false);
-    setShowConsentModal(true);
+    if (newConfig.apiKey && !newConfig.hasConsented) {
+      setShowConsentModal(true);
+    }
   }, [updateConfig]);
 
   // Handle consent
@@ -222,23 +139,15 @@ export default function HomePage() {
     <div className="min-h-screen text-indigo-100 overflow-x-hidden">
       {/* Background layers */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        {/* Gradient orbs */}
-        <motion.div
-          className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full opacity-40"
-          style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.3) 0%, rgba(236,72,153,0.1) 40%, transparent 70%)' }}
-          animate={{ x: [0, 50, 0], y: [0, 30, 0], scale: [1, 1.1, 1] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        <div
+          className="absolute top-[-10%] left-[-5%] w-[50%] h-[50%] rounded-full opacity-30"
+          style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.2) 0%, transparent 60%)' }}
         />
-        <motion.div
-          className="absolute bottom-[-30%] right-[-20%] w-[70%] h-[70%] rounded-full opacity-30"
-          style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.25) 0%, rgba(99,102,241,0.1) 40%, transparent 70%)' }}
-          animate={{ x: [0, -40, 0], y: [0, -20, 0], scale: [1, 1.15, 1] }}
-          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+        <div
+          className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full opacity-20"
+          style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 60%)' }}
         />
-        <FloatingClouds />
-        <FloatingStars />
-        {/* Grid pattern */}
-        <div className="absolute inset-0 bg-grid opacity-[0.04]" />
+        <div className="absolute inset-0 bg-grid opacity-[0.03]" />
       </div>
 
       {/* Navigation */}
@@ -246,58 +155,113 @@ export default function HomePage() {
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-3"
         >
-          <div className="relative">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
-              <Sparkles className="w-6 h-6 text-white" />
+          <Link href="/" className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
             </div>
-          </div>
-          <span className="text-2xl font-black tracking-tight">
-            <span className="text-white">Jalanea</span>
-            <span className="text-orange-400"> ATS</span>
-          </span>
+            <span className="text-2xl font-black tracking-tight">
+              <span className="text-white">Jalanea</span>
+              <span className="text-orange-400"> ATS</span>
+            </span>
+          </Link>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-3"
+          className="flex items-center gap-2 sm:gap-3"
         >
+          {/* AI Settings - unified indigo style */}
           <button
             onClick={() => setShowKeyModal(true)}
-            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-full border transition-colors ${
+            aria-label={hasApiKey ? 'AI settings configured' : 'Configure AI settings'}
+            className={`flex items-center justify-center gap-2 text-sm h-9 px-3 sm:px-4 rounded-full border transition-colors shrink-0 ${
               hasApiKey
                 ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
-                : 'text-amber-300 hover:text-amber-200 bg-amber-900/30 border-amber-700/30 hover:border-amber-500/50'
+                : 'text-indigo-300 hover:text-indigo-200 bg-indigo-900/30 border-indigo-500/30 hover:border-indigo-400/50'
             }`}
-            title={hasApiKey ? 'API key configured' : 'Add your API key for AI features'}
           >
             <Settings className="w-4 h-4" />
             <span className="font-medium hidden sm:inline">
-              {hasApiKey ? 'API Key ✓' : 'Add API Key'}
+              {hasApiKey ? 'AI Settings ✓' : 'AI Settings'}
             </span>
           </button>
-          <div className="hidden md:flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
-            <Moon className="w-4 h-4 text-yellow-400" />
-            <span className="font-medium">Free forever</span>
-          </div>
+          {/* Pricing link - consistent with other nav items */}
+          {!hasAccess && (
+            <Link
+              href="/pricing"
+              className="flex items-center justify-center gap-2 text-sm h-9 px-3 sm:px-4 rounded-full border border-indigo-500/30 bg-indigo-900/30 text-indigo-200 hover:text-white hover:border-indigo-400/50 transition-colors shrink-0"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span className="hidden sm:inline">Pricing</span>
+            </Link>
+          )}
+          {/* Account/Login - unified indigo style */}
+          <Link
+            href={user ? '/account' : '/login'}
+            aria-label={user ? 'View account' : 'Log in'}
+            className="flex items-center justify-center gap-2 text-sm h-9 px-3 sm:px-4 rounded-full border border-indigo-500/30 bg-indigo-900/30 text-indigo-200 hover:text-white hover:border-indigo-400/50 transition-colors shrink-0"
+          >
+            <User className="w-4 h-4" />
+            <span className="hidden sm:inline">{user ? 'Account' : 'Login'}</span>
+          </Link>
         </motion.div>
       </nav>
 
       {/* Main content */}
       <main className="relative z-10 max-w-4xl mx-auto px-6 pb-24 pt-6">
-        {/* Header */}
-        <div className="text-center mb-10 relative">
-          {/* Floating stickers */}
-          <Sticker rotate={-12} className="top-0 left-[5%] bg-gradient-to-r from-cyan-400 to-cyan-500 text-cyan-950 hidden lg:block">
-            🔒 Private
-          </Sticker>
-          <Sticker rotate={8} className="top-[15%] right-[5%] bg-gradient-to-r from-pink-400 to-pink-500 text-pink-950 hidden lg:block">
-            ⚡ Fast
-          </Sticker>
+        {/* Floating decorations */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Clouds - animated background decoration */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 0.5, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="absolute top-6 left-4 md:left-12 animate-float-slow"
+          >
+            <Cloud className="w-14 h-14 text-indigo-800/60" strokeWidth={1.5} />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 0.4, x: 0 }}
+            transition={{ delay: 0.5 }}
+            className="absolute top-16 right-4 md:right-8 animate-float"
+            style={{ animationDelay: '1s' }}
+          >
+            <Cloud className="w-20 h-20 text-pink-900/40" strokeWidth={1} />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 0.35, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="absolute top-32 left-8 md:left-24 animate-float"
+            style={{ animationDelay: '0.5s' }}
+          >
+            <Cloud className="w-12 h-12 text-indigo-700/40" strokeWidth={1.5} />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 0.3, y: 0 }}
+            transition={{ delay: 0.8 }}
+            className="absolute top-28 right-16 md:right-32 animate-float-slow"
+            style={{ animationDelay: '1.5s' }}
+          >
+            <Cloud className="w-16 h-16 text-purple-900/30" strokeWidth={1} />
+          </motion.div>
 
-          {/* Badge */}
+          {/* Stars - reduced to 4 for less clutter */}
+          <span className="absolute top-12 left-1/4 text-amber-400 text-xs animate-twinkle" style={{ animationDelay: '0s' }}>✦</span>
+          <span className="absolute top-24 right-1/4 text-cyan-400 text-xs animate-twinkle-slow" style={{ animationDelay: '0.5s' }}>✦</span>
+          <span className="absolute top-16 right-1/3 text-amber-300 text-sm animate-twinkle-slow" style={{ animationDelay: '1s' }}>✦</span>
+          <span className="absolute top-32 left-[20%] text-pink-400 text-xs animate-twinkle" style={{ animationDelay: '1.5s' }}>✦</span>
+        </div>
+
+        {/* Header */}
+        <div className="text-center mb-12 relative">
+          {/* PDF & DOCX Support badge */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -326,8 +290,28 @@ export default function HomePage() {
             className="text-lg text-indigo-300 max-w-xl mx-auto"
           >
             See exactly how ATS software reads your resume. All processing happens{' '}
-            <span className="text-orange-400 font-bold">locally in your browser</span>.
+            <span className="text-orange-400 font-medium">locally in your browser</span>.
           </motion.p>
+          {/* Feature badges row - visible on all screen sizes */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-wrap items-center justify-center gap-2 mt-5"
+          >
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/20 border border-orange-500/30 text-orange-300 text-xs font-medium">
+              <Lock className="w-3 h-3" />
+              Private
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-500/20 border border-pink-500/30 text-pink-300 text-xs font-medium">
+              <Zap className="w-3 h-3" />
+              Fast
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
+              <Gift className="w-3 h-3" />
+              3 free/day
+            </span>
+          </motion.div>
         </div>
 
         {/* Continue where you left off prompt */}
@@ -342,12 +326,12 @@ export default function HomePage() {
           />
         )}
 
-        {/* Upload Card - Always enabled, no API key required */}
+        {/* Upload Card */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, type: "spring", stiffness: 100 }}
-          className="glass-card rounded-3xl p-2 mb-10 relative"
+          className="glass-card rounded-3xl p-2 mb-12 relative"
         >
           <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 md:p-8">
             <UploadDropzone
@@ -379,92 +363,43 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* How it Works - Clear explanation of the tool */}
+        {/* How it Works */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
-          className="mb-10"
+          className="mb-12"
         >
-          <h2 className="text-lg font-bold text-white mb-4 text-center">How it works</h2>
+          <h2 className="text-xl font-bold text-white mb-5 text-center">How it works</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">1</div>
-              <h3 className="text-sm font-bold text-white mb-1">Upload your resume</h3>
-              <p className="text-xs text-indigo-300">PDF, DOCX, or TXT. Everything stays in your browser.</p>
+              <h3 className="text-base font-bold text-white mb-1">Upload your resume</h3>
+              <p className="text-sm text-indigo-300">PDF, DOCX, or TXT. Everything stays in your browser.</p>
             </div>
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">2</div>
-              <h3 className="text-sm font-bold text-white mb-1">See what bots see</h3>
-              <p className="text-xs text-indigo-300">View the plain text that ATS software extracts from your resume.</p>
+              <h3 className="text-base font-bold text-white mb-1">See what bots see</h3>
+              <p className="text-sm text-indigo-300">View the plain text that ATS software extracts.</p>
             </div>
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5 text-center">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">3</div>
-              <h3 className="text-sm font-bold text-white mb-1">Fix issues</h3>
-              <p className="text-xs text-indigo-300">Get specific tips to improve formatting and keyword coverage.</p>
+              <h3 className="text-base font-bold text-white mb-1">Fix issues</h3>
+              <p className="text-sm text-indigo-300">Get tips to improve formatting and keywords.</p>
             </div>
           </div>
         </motion.div>
-
-        {/* Optional: API Key for AI Features - Show as enhancement, not requirement */}
-        {!isLoadingConfig && !hasApiKey && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="mb-10 p-4 bg-indigo-900/30 border border-indigo-500/30 rounded-2xl"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
-                <Sparkles className="w-5 h-5 text-indigo-300" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-indigo-200">
-                  <span className="font-semibold text-white">Want AI-powered insights?</span>{' '}
-                  Add a free API key for semantic matching and advanced analysis.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowKeyModal(true)}
-                className="shrink-0 px-4 py-2 text-sm bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 rounded-lg border border-indigo-500/30 transition-colors"
-              >
-                Add Key
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Feature cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-          <FeatureCard
-            icon={Shield}
-            title="Privacy First"
-            description="Your resume never leaves your browser. All processing happens locally."
-            delay={0.45}
-          />
-          <FeatureCard
-            icon={Eye}
-            title="See What ATS Sees"
-            description="View the plain text that applicant tracking systems extract from your resume."
-            delay={0.5}
-          />
-          <FeatureCard
-            icon={CheckCircle}
-            title="Actionable Insights"
-            description="Get specific recommendations to improve how your resume parses."
-            delay={0.55}
-          />
-        </div>
 
         {/* Tips section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-orange-500/10 border-2 border-orange-500/30 rounded-2xl p-5"
+          transition={{ delay: 0.5 }}
+          className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-5"
         >
-          <h3 className="text-sm font-bold text-orange-400 mb-3 flex items-center gap-2">
-            <span>💡</span> Tips for best results
+          <h3 className="text-base font-bold text-orange-400 mb-3 flex items-center gap-2">
+            <Lightbulb className="w-4 h-4" />
+            Tips for best results
           </h3>
           <ul className="text-sm text-orange-200/80 space-y-2">
             <li className="flex items-start gap-2">
@@ -486,21 +421,28 @@ export default function HomePage() {
           </ul>
         </motion.div>
 
-        {/* Footer links */}
-        <motion.div
+        {/* Footer */}
+        <motion.footer
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          className="mt-10 text-center text-sm text-indigo-400"
+          transition={{ delay: 0.6 }}
+          className="mt-20 pt-8 border-t border-indigo-800/30"
         >
-          <Link href="/privacy" className="hover:text-indigo-300 transition-colors">
-            Privacy Policy
-          </Link>
-          <span className="mx-2">•</span>
-          <Link href="/terms" className="hover:text-indigo-300 transition-colors">
-            Terms of Use
-          </Link>
-        </motion.div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-indigo-500">
+            <span className="font-medium">Jalanea ATS</span>
+            <div className="flex items-center gap-4">
+              <Link href="/privacy" className="hover:text-indigo-300 transition-colors">
+                Privacy
+              </Link>
+              <Link href="/terms" className="hover:text-indigo-300 transition-colors">
+                Terms
+              </Link>
+              <Link href="/help" className="hover:text-indigo-300 transition-colors">
+                Help
+              </Link>
+            </div>
+          </div>
+        </motion.footer>
       </main>
 
       {/* API Key Modal */}

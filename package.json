@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@stripe/stripe-js": "^8.7.0",
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.26",
@@ -19,6 +22,7 @@
     "pdfjs-dist": "^5.4.530",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "stripe": "^20.3.0",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {

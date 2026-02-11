@@ -14,13 +14,16 @@ import {
 } from 'lucide-react';
 import { SemanticMatchResult, RecruiterSearchResult, CoverageResult, KnockoutRiskResult, EnhancedKnockoutItem } from '@/lib/analysis';
 import { KnockoutItem } from '@/lib/types/session';
-import { LlmConfig } from '@/lib/llm/types';
+import { GeminiModel, LlmConfig } from '@/lib/llm/types';
+import { FreeTierStatus, FreeTierAnalysisResult } from '@/hooks/useFreeTier';
 import { JobMatchSummary } from './JobMatchSummary';
 import { SemanticMatchPanel } from './SemanticMatchPanel';
 import { RecruiterSearchPanel } from './RecruiterSearchPanel';
 import { KeywordCoveragePanel } from './KeywordCoveragePanel';
 import { KnockoutChecklist } from './KnockoutChecklist';
 import { AiFeaturesPanel } from './AiFeaturesPanel';
+import { FreeTierPrompt } from './FreeTierPrompt';
+import { ResumeImprover } from './ResumeImprover';
 
 interface Step {
   id: string;
@@ -85,6 +88,7 @@ interface JobMatchStepperProps {
   keywords: { critical: string[]; optional: string[] } | null;
   // AI Features
   llmConfig: LlmConfig | null;
+  geminiModel?: GeminiModel;
   resumeText: string;
   jobDescriptionText: string;
   // Callbacks
@@ -93,6 +97,13 @@ interface JobMatchStepperProps {
   onConsentClick: () => void;
   // Loading state
   isAnalyzingSemantic?: boolean;
+  // Free tier props
+  freeTierStatus?: FreeTierStatus | null;
+  freeTierLoading?: boolean;
+  freeTierResult?: FreeTierAnalysisResult | null;
+  isFreeTierAnalyzing?: boolean;
+  freeTierError?: string | null;
+  onFreeTierAnalyze?: () => void;
 }
 
 /**
@@ -110,12 +121,19 @@ export function JobMatchStepper({
   knockouts,
   keywords,
   llmConfig,
+  geminiModel,
   resumeText,
   jobDescriptionText,
   onKnockoutChange,
   onConfigureClick,
   onConsentClick,
   isAnalyzingSemantic,
+  freeTierStatus,
+  freeTierLoading,
+  freeTierResult,
+  isFreeTierAnalyzing,
+  freeTierError,
+  onFreeTierAnalyze,
 }: JobMatchStepperProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
@@ -164,6 +182,7 @@ export function JobMatchStepper({
         );
 
       case 'semantic':
+        // Show loading for BYOK semantic analysis
         if (isAnalyzingSemantic) {
           return (
             <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-purple-500/30 p-8 text-center">
@@ -173,9 +192,90 @@ export function JobMatchStepper({
             </div>
           );
         }
+
+        // Show BYOK semantic match result if available
         if (semanticMatch?.success) {
           return <SemanticMatchPanel result={semanticMatch} />;
         }
+
+        // Show free tier result if available
+        if (freeTierResult) {
+          return (
+            <div className="space-y-4">
+              {/* Free tier ATS score */}
+              <div className="bg-gradient-to-br from-emerald-900/30 to-cyan-900/30 backdrop-blur-sm rounded-2xl border-2 border-emerald-500/30 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-white">AI Analysis</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-medium rounded-full">
+                      Demo
+                    </span>
+                    <span className={`text-2xl font-bold ${
+                      freeTierResult.score >= 80 ? 'text-emerald-400' :
+                      freeTierResult.score >= 60 ? 'text-amber-400' : 'text-red-400'
+                    }`}>
+                      {freeTierResult.score}%
+                    </span>
+                  </div>
+                </div>
+                <p className="text-indigo-200 text-sm mb-4">{freeTierResult.summary}</p>
+
+                {/* Keyword matches */}
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="bg-indigo-950/50 rounded-xl p-3">
+                    <div className="text-xs text-indigo-400 mb-1">Matched Keywords</div>
+                    <div className="text-lg font-bold text-emerald-400">{freeTierResult.keywordMatches.found.length}</div>
+                  </div>
+                  <div className="bg-indigo-950/50 rounded-xl p-3">
+                    <div className="text-xs text-indigo-400 mb-1">Missing Keywords</div>
+                    <div className="text-lg font-bold text-amber-400">{freeTierResult.keywordMatches.missing.length}</div>
+                  </div>
+                </div>
+
+                {/* Suggestions */}
+                {freeTierResult.overallSuggestions.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-semibold text-white mb-2">Suggestions</h4>
+                    <ul className="space-y-2">
+                      {freeTierResult.overallSuggestions.slice(0, 3).map((suggestion, i) => (
+                        <li key={i} className="text-sm text-indigo-300 flex items-start gap-2">
+                          <span className="text-cyan-400 mt-1">•</span>
+                          <span>{suggestion}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Remaining uses notice */}
+              {freeTierResult._freeTier && (
+                <div className="text-center text-xs text-indigo-400">
+                  {freeTierResult._freeTier.remaining} free {freeTierResult._freeTier.remaining === 1 ? 'analysis' : 'analyses'} remaining today
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // Check if user has BYOK configured
+        const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+
+        // Show free tier prompt if available and no BYOK
+        if (!hasApiKey && onFreeTierAnalyze) {
+          return (
+            <FreeTierPrompt
+              status={freeTierStatus ?? null}
+              isLoading={freeTierLoading ?? false}
+              isAnalyzing={isFreeTierAnalyzing ?? false}
+              onAnalyze={onFreeTierAnalyze}
+              onConfigureClick={onConfigureClick}
+              error={freeTierError ?? null}
+            />
+          );
+        }
+
+        // Default: show configure AI button
         return (
           <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-8 text-center">
             <div className="w-16 h-16 bg-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-purple-500/30">
@@ -183,13 +283,13 @@ export function JobMatchStepper({
             </div>
             <h3 className="text-lg font-bold text-white mb-2">AI Analysis Not Available</h3>
             <p className="text-indigo-300 text-sm max-w-md mx-auto mb-4">
-              Configure your API key to enable AI-powered semantic matching and get deeper insights into how your resume aligns with this role.
+              Use the free demo (3/day) or add your Gemini key to enable AI-powered semantic matching and get deeper insights into how your resume aligns with this role.
             </p>
             <button
               onClick={onConfigureClick}
               className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors text-sm font-medium"
             >
-              Configure AI
+              AI Settings
             </button>
           </div>
         );
@@ -224,18 +324,35 @@ export function JobMatchStepper({
         );
 
       case 'ai-assistant':
+        // Check if AI is available (either BYOK or free tier)
+        const isAiAvailable = !!(llmConfig?.apiKey && llmConfig?.hasConsented) ||
+          !!(freeTierStatus?.enabled && (freeTierStatus?.remaining ?? 0) > 0);
+
         return (
-          <AiFeaturesPanel
-            config={llmConfig}
-            resumeText={resumeText}
-            jobDescriptionText={jobDescriptionText}
-            criticalKeywords={keywords?.critical || []}
-            optionalKeywords={keywords?.optional || []}
-            matchedKeywords={coverage?.foundKeywords || []}
-            missingKeywords={coverage?.missingKeywords || []}
-            onConfigureClick={onConfigureClick}
-            onConsentClick={onConsentClick}
-          />
+          <div className="space-y-6">
+            {/* Resume Improver - Main feature */}
+            <ResumeImprover
+              resumeText={resumeText}
+              jobDescription={jobDescriptionText}
+              missingKeywords={coverage?.missingKeywords || []}
+              isAiAvailable={isAiAvailable}
+              geminiModel={geminiModel}
+              onConfigureClick={onConfigureClick}
+            />
+
+            {/* AI Features Panel - Semantic matching etc. */}
+            <AiFeaturesPanel
+              config={llmConfig}
+              resumeText={resumeText}
+              jobDescriptionText={jobDescriptionText}
+              criticalKeywords={keywords?.critical || []}
+              optionalKeywords={keywords?.optional || []}
+              matchedKeywords={coverage?.foundKeywords || []}
+              missingKeywords={coverage?.missingKeywords || []}
+              onConfigureClick={onConfigureClick}
+              onConsentClick={onConsentClick}
+            />
+          </div>
         );
 
       default:

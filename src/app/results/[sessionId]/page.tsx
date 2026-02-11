@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, Moon, ArrowLeft, History, X, Settings, PanelLeftClose, PanelLeft, ClipboardList } from 'lucide-react';
+import { Sparkles, FileText, Shield, ArrowLeft, History, X, Settings, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { MobileActionButton } from '@/components/MobileActionButton';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
 import { ScoreCardGrid } from '@/components/scores';
@@ -22,6 +22,8 @@ import { ConsentModal } from '@/components/ConsentModal';
 import { ExportButtons } from '@/components/ExportButtons';
 import { LearnTab } from '@/components/education';
 import { VendorGuidance } from '@/components/ats';
+import { ScoreGuidance } from '@/components/ScoreGuidance';
+import { generateGuidance, GuidanceActionTarget } from '@/lib/analysis/scoreGuidance';
 import { ExportableSession } from '@/lib/export/report';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import { historyStore } from '@/lib/storage/historyStore';
@@ -49,6 +51,8 @@ import {
 } from '@/lib/analysis';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
 import { useProgress } from '@/hooks/useProgress';
+import { useFreeTier, FreeTierAnalysisResult } from '@/hooks/useFreeTier';
+import { useAuth } from '@/hooks/useAuth';
 import { LlmConfig } from '@/lib/llm/types';
 
 /**
@@ -155,6 +159,12 @@ export default function ResultsPage() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
 
+  // Free tier state
+  const freeTier = useFreeTier();
+  const [freeTierResult, setFreeTierResult] = useState<FreeTierAnalysisResult | null>(null);
+  const [isFreeTierAnalyzing, setIsFreeTierAnalyzing] = useState(false);
+  const [freeTierError, setFreeTierError] = useState<string | null>(null);
+
   // History state
   const [showHistory, setShowHistory] = useState(false);
   const [historySaved, setHistorySaved] = useState(false);
@@ -164,6 +174,7 @@ export default function ResultsPage() {
 
   // Progress tracking
   const { saveSession } = useProgress();
+  const { hasAccess } = useAuth();
 
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
@@ -178,6 +189,24 @@ export default function ResultsPage() {
   const handleConsent = async () => {
     await setConsent(true);
   };
+
+  // Handle free tier analysis
+  const handleFreeTierAnalysis = useCallback(async () => {
+    if (!session || !jobText.trim()) return;
+
+    setIsFreeTierAnalyzing(true);
+    setFreeTierError(null);
+
+    try {
+      const result = await freeTier.analyze(session.resume.extractedText, jobText);
+      setFreeTierResult(result);
+    } catch (err) {
+      console.error('Free tier analysis error:', err);
+      setFreeTierError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setIsFreeTierAnalyzing(false);
+    }
+  }, [session, jobText, freeTier]);
 
   // Load session on mount
   useEffect(() => {
@@ -437,6 +466,40 @@ export default function ResultsPage() {
     ...(knockoutRisk?.findings || []),
   ];
 
+  // Dynamic score-based guidance
+  const guidanceItems = useMemo(() => {
+    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+    return generateGuidance({
+      parseHealth: scores.parseHealth,
+      knockoutRisk: knockoutRisk?.risk,
+      knockoutCount: knockouts.length,
+      semanticMatch: semanticMatch?.score,
+      recruiterSearch: recruiterSearch?.score,
+      keywordCoverage: coverage?.score,
+      hasJobDescription: !!coverage,
+      hasApiKey,
+      hasAccess,
+      freeTierRemaining: freeTier.status?.remaining,
+    });
+  }, [scores.parseHealth, knockoutRisk, knockouts.length, semanticMatch, recruiterSearch, coverage, llmConfig, hasAccess, freeTier.status]);
+
+  const handleGuidanceAction = useCallback((target: GuidanceActionTarget) => {
+    switch (target) {
+      case 'findings':
+        setActiveTab('overview');
+        break;
+      case 'jobmatch':
+        setActiveTab('jobmatch');
+        break;
+      case 'ai-settings':
+        setShowKeyModal(true);
+        break;
+      case 'pricing':
+        router.push('/pricing');
+        break;
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen text-indigo-100 overflow-x-hidden">
       {/* Navigation */}
@@ -471,11 +534,11 @@ export default function ResultsPage() {
                 ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
                 : 'text-amber-300 hover:text-amber-200 bg-amber-900/30 border-amber-700/30 hover:border-amber-500/50'
             }`}
-            title={llmConfig?.apiKey ? 'API key configured' : 'Add your API key for AI features'}
+            title={llmConfig?.apiKey ? 'AI settings configured' : 'AI settings and Gemini key'}
           >
             <Settings className="w-4 h-4" />
             <span className="font-medium hidden sm:inline">
-              {llmConfig?.apiKey && llmConfig?.hasConsented ? 'API Key ✓' : 'Add API Key'}
+              {llmConfig?.apiKey && llmConfig?.hasConsented ? 'AI Settings ✓' : 'AI Settings'}
             </span>
           </button>
           <button
@@ -485,10 +548,6 @@ export default function ResultsPage() {
             <History className="w-4 h-4" />
             <span className="font-medium hidden sm:inline">History</span>
           </button>
-          <div className="hidden md:flex items-center gap-2 text-sm text-indigo-300 bg-indigo-900/40 px-4 py-2 rounded-full border border-indigo-700/30">
-            <Moon className="w-4 h-4 text-yellow-400" />
-            <span className="font-medium">Free forever</span>
-          </div>
         </motion.div>
       </nav>
 
@@ -662,6 +721,7 @@ export default function ResultsPage() {
               parseScore={scores.parseHealth}
               hasApiKey={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
               onOpenApiKeyModal={() => setShowKeyModal(true)}
+              freeTierStatus={freeTier.status}
             />
           </div>
 
@@ -734,28 +794,8 @@ export default function ResultsPage() {
                 {/* Findings Panel - Issues and recommendations */}
                 <FindingsPanel findings={findings} />
 
-                {/* Quick next step prompt if no job description yet */}
-                {!coverage && (
-                  <div className="bg-gradient-to-r from-orange-500/10 to-pink-500/10 border border-orange-500/30 rounded-2xl p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-orange-500/20 rounded-lg">
-                        <ClipboardList className="w-5 h-5 text-orange-400" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-orange-200">
-                          <span className="font-semibold text-white">Next step:</span>{' '}
-                          Add a job description to see how well your resume matches.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab('jobmatch')}
-                        className="shrink-0 px-4 py-2 text-sm bg-orange-500/20 hover:bg-orange-500/30 text-orange-200 rounded-lg border border-orange-500/30 transition-colors"
-                      >
-                        Add Job
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {/* Dynamic score-based guidance */}
+                <ScoreGuidance items={guidanceItems} onAction={handleGuidanceAction} />
               </div>
             )}
 
@@ -800,6 +840,13 @@ export default function ResultsPage() {
                     onConfigureClick={() => setShowKeyModal(true)}
                     onConsentClick={() => setShowConsentModal(true)}
                     isAnalyzingSemantic={isAnalyzingSemantic}
+                    // Free tier props
+                    freeTierStatus={freeTier.status}
+                    freeTierLoading={freeTier.isLoading}
+                    freeTierResult={freeTierResult}
+                    isFreeTierAnalyzing={isFreeTierAnalyzing}
+                    freeTierError={freeTierError}
+                    onFreeTierAnalyze={handleFreeTierAnalysis}
                   />
                 )}
               </div>

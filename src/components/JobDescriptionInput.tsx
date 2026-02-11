@@ -2,8 +2,10 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Target, ClipboardPaste, Link2, CheckCircle2, Bot, Search, X, Key, Sparkles } from 'lucide-react';
+import { Target, ClipboardPaste, Link2, Bot, Search, X, Key, Sparkles, Zap, CreditCard } from 'lucide-react';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
+import type { FreeTierStatus } from '@/hooks/useFreeTier';
+import Link from 'next/link';
 
 interface JobDescriptionInputProps {
   /** Current job description text */
@@ -28,6 +30,8 @@ interface JobDescriptionInputProps {
   hasApiKey?: boolean;
   /** Callback to open the API key settings modal */
   onOpenApiKeyModal?: () => void;
+  /** Free tier status (optional) */
+  freeTierStatus?: FreeTierStatus | null;
 }
 
 /**
@@ -47,6 +51,7 @@ export function JobDescriptionInput({
   parseScore,
   hasApiKey = false,
   onOpenApiKeyModal,
+  freeTierStatus,
 }: JobDescriptionInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showTextarea, setShowTextarea] = useState(false);
@@ -72,6 +77,8 @@ export function JobDescriptionInput({
   }, [onJobUrlChange]);
 
   const showEmptyState = hasResume && jobText.length === 0 && !showTextarea;
+  const demoAvailable = !!(freeTierStatus?.enabled && (freeTierStatus.remaining ?? 0) > 0);
+  const demoRemaining = freeTierStatus?.remaining ?? null;
 
   // Auto-focus textarea when shown
   useEffect(() => {
@@ -448,27 +455,57 @@ Benefits:
           </button>
         </div>
 
-        {/* API Key prompt for AI features */}
-        {!hasApiKey && charCount > 50 && onOpenApiKeyModal && (
+        {/* AI access prompt */}
+        {!hasApiKey && charCount > 50 && (
           <div className="mt-3 p-3 bg-indigo-900/50 border border-indigo-500/30 rounded-xl">
             <div className="flex items-start gap-3">
               <div className="p-1.5 bg-cyan-500/20 rounded-lg shrink-0">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
+                {demoAvailable ? (
+                  <Zap className="w-4 h-4 text-cyan-300" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white">
-                  Unlock AI-Powered Analysis
+                  {demoAvailable ? 'Demo AI ready' : 'Unlock AI-Powered Analysis'}
                 </p>
                 <p className="text-xs text-indigo-300 mt-0.5">
-                  Add your free Gemini API key to get semantic matching, which finds skills you have that match the job using different terminology.
+                  {demoAvailable
+                    ? `You can run the demo now${demoRemaining !== null ? ` (${demoRemaining} left today)` : ''}. Add your Gemini key for unlimited AI tools.`
+                    : 'Daily demo uses are exhausted. Add your Gemini key or subscribe for unlimited AI analysis.'}
                 </p>
-                <button
-                  onClick={onOpenApiKeyModal}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
-                >
-                  <Key className="w-3.5 h-3.5" />
-                  Add API Key
-                </button>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {demoAvailable && (
+                    <button
+                      onClick={onAnalyze}
+                      disabled={!canAnalyze}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Run Demo Analysis
+                    </button>
+                  )}
+                  {onOpenApiKeyModal && (
+                    <button
+                      onClick={onOpenApiKeyModal}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
+                    >
+                      <Key className="w-3.5 h-3.5" />
+                      Add Gemini Key
+                    </button>
+                  )}
+                  {!demoAvailable && (
+                    <Link
+                      href="/pricing"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg transition-colors"
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      Subscribe $5/mo
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           </div>

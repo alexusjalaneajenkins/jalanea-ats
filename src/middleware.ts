@@ -36,8 +36,12 @@ function checkRateLimit(key: string): { allowed: boolean; remaining: number; res
 }
 
 export function middleware(request: NextRequest) {
-  // Only apply rate limiting to the analyze API endpoint
-  if (request.nextUrl.pathname === '/api/analyze') {
+  // Apply rate limiting to analyze endpoints
+  const isAnalyzeEndpoint =
+    request.nextUrl.pathname === '/api/analyze' ||
+    request.nextUrl.pathname === '/api/analyze-free';
+
+  if (isAnalyzeEndpoint) {
     const key = getRateLimitKey(request);
     const { allowed, remaining, resetTime } = checkRateLimit(key);
 
@@ -69,5 +73,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/api/analyze',
+  matcher: ['/api/analyze', '/api/analyze-free'],
 };
