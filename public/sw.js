@@ -3,7 +3,7 @@
  * Enables offline functionality and caching
  */
 
-const CACHE_NAME = 'jalanea-ats-v1';
+const CACHE_NAME = 'jalanea-ats-v3';
 
 // Files to cache for offline use
 const STATIC_ASSETS = [
@@ -52,6 +52,22 @@ self.addEventListener('fetch', (event) => {
 
   // Skip API routes (let them always go to network)
   if (event.request.url.includes('/api/')) return;
+
+  const url = new URL(event.request.url);
+
+  // Never cache Next.js build assets. Stale chunk caches can crash the app after deploys.
+  if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // For app/document navigations, prefer network to avoid serving stale app shells.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/'))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
