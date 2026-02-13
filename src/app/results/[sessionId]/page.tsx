@@ -388,9 +388,8 @@ export default function ResultsPage() {
         }
       }
 
-      // Also trigger free tier AI analysis (runs in parallel after local analysis completes)
-      // This is non-blocking - we don't await it since local results are already shown
-      runFreeTierAnalysis();
+      // Run free tier AI analysis - AWAIT it so user sees full loading state
+      await runFreeTierAnalysis();
     } catch (err) {
       console.error('Error analyzing job description:', err);
     } finally {
