@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -137,6 +137,15 @@ export function JobMatchStepper({
 }: JobMatchStepperProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
+
+  // Auto-navigate to AI Analysis step when free tier result arrives
+  useEffect(() => {
+    if (freeTierResult && currentStepIndex === 0) {
+      // Navigate to AI Analysis (step 1) to show the results
+      setCurrentStepIndex(1);
+      setVisitedSteps(prev => new Set([...prev, 1]));
+    }
+  }, [freeTierResult, currentStepIndex]);
 
   const currentStep = STEPS[currentStepIndex];
   const isFirstStep = currentStepIndex === 0;
