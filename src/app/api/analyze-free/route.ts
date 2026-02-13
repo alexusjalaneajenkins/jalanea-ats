@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateATSAnalysis } from '@/lib/ai/gemini';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { parseATSAnalysisResponse } from '@/lib/ai/parseATSAnalysis';
 
 /**
  * Free tier daily usage tracking.
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { resume, jobDescription } = body;
+    const { resume, jobDescription, model } = body;
 
     if (!resume || !jobDescription) {
       await safeRefund();
@@ -257,36 +258,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await generateATSAnalysis(resume, jobDescription);
-
-    // Parse the JSON response
     let result;
     try {
+      const response = await generateATSAnalysis(resume, jobDescription, model);
+      result = parseATSAnalysisResponse(response);
+    } catch (firstError) {
+      // Retry once to smooth over occasional malformed model wrappers.
+      console.error('Primary parse attempt failed, retrying once:', firstError);
+      const retryResponse = await generateATSAnalysis(resume, jobDescription, model);
       try {
-        result = JSON.parse(response);
-      } catch {
-        const codeBlockMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-        if (codeBlockMatch) {
-          result = JSON.parse(codeBlockMatch[1]);
-        } else {
-          const jsonMatch = response.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            result = JSON.parse(jsonMatch[0]);
-          } else {
-            throw new Error('No valid JSON found in response');
-          }
-        }
+        result = parseATSAnalysisResponse(retryResponse);
+      } catch (retryError) {
+        console.error('Retry parse failed:', retryError);
+        console.error('Retry raw response:', retryResponse);
+
+        await safeRefund();
+
+        return NextResponse.json(
+          { error: 'Failed to parse analysis. Please try again.' },
+          { status: 500 }
+        );
       }
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', response);
-      console.error('Parse error:', parseError);
-
-      await safeRefund();
-
-      return NextResponse.json(
-        { error: 'Failed to parse analysis. Please try again.' },
-        { status: 500 }
-      );
     }
 
     return NextResponse.json(

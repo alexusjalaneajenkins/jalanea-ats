@@ -17,12 +17,16 @@ export function resolveGeminiModel(requestedModel?: string | null): GeminiModel 
 
 interface GeminiResponse {
   candidates?: Array<{
+    finishReason?: string;
     content?: {
       parts?: Array<{
         text?: string;
       }>;
     };
   }>;
+  promptFeedback?: {
+    blockReason?: string;
+  };
 }
 
 export async function generateATSAnalysis(
@@ -135,11 +139,36 @@ Provide your analysis in the JSON format specified.`;
   );
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const errorMessage = (error.error as { message?: string })?.message || `Gemini API error: ${response.status}`;
+    const errorText = await response.text().catch(() => '');
+    let errorMessage = `Gemini API error: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
+      if (errorJson.error?.message) {
+        errorMessage = errorJson.error.message;
+      }
+    } catch {
+      if (errorText.trim()) {
+        errorMessage = `${errorMessage} - ${errorText.slice(0, 200)}`;
+      }
+    }
     throw new Error(errorMessage);
   }
 
   const data: GeminiResponse = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const candidate = data.candidates?.[0];
+  const text = candidate?.content?.parts
+    ?.map((part) => part.text || '')
+    .join('')
+    .trim();
+
+  if (text) {
+    return text;
+  }
+
+  const blockReason = data.promptFeedback?.blockReason || candidate?.finishReason;
+  if (blockReason) {
+    throw new Error(`Gemini returned no text output (${blockReason})`);
+  }
+
+  throw new Error('Gemini returned an empty analysis response');
 }

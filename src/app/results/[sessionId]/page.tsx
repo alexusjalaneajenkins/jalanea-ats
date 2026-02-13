@@ -29,7 +29,7 @@ import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import { historyStore } from '@/lib/storage/historyStore';
 import { ScoreSnapshot, JobMetadata } from '@/lib/types/history';
 import { HistoryDashboard } from '@/components/history';
-import { AnalysisSession, scoreToGrade, KnockoutItem, KeywordSet } from '@/lib/types/session';
+import { AnalysisSession, KnockoutItem, KeywordSet } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import {
   analyzeResume,
@@ -47,7 +47,6 @@ import {
   RecruiterSearchResult,
   SemanticMatchResult,
   EnhancedKnockoutItem,
-  Finding,
 } from '@/lib/analysis';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
 import { useProgress } from '@/hooks/useProgress';
@@ -398,6 +397,40 @@ export default function ResultsPage() {
     []
   );
 
+  // Dynamic score-based guidance
+  const guidanceItems = useMemo(() => {
+    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+    return generateGuidance({
+      parseHealth: analysis?.scores.parseHealth ?? 0,
+      knockoutRisk: knockoutRisk?.risk,
+      knockoutCount: knockouts.length,
+      semanticMatch: semanticMatch?.score,
+      recruiterSearch: recruiterSearch?.score,
+      keywordCoverage: coverage?.score,
+      hasJobDescription: !!coverage,
+      hasApiKey,
+      hasAccess,
+      freeTierRemaining: freeTier.status?.remaining,
+    });
+  }, [analysis, knockoutRisk, knockouts.length, semanticMatch, recruiterSearch, coverage, llmConfig, hasAccess, freeTier.status]);
+
+  const handleGuidanceAction = useCallback((target: GuidanceActionTarget) => {
+    switch (target) {
+      case 'findings':
+        setActiveTab('overview');
+        break;
+      case 'jobmatch':
+        setActiveTab('jobmatch');
+        break;
+      case 'ai-settings':
+        setShowKeyModal(true);
+        break;
+      case 'pricing':
+        router.push('/pricing');
+        break;
+    }
+  }, [router]);
+
   // Loading state
   if (loading) {
     return (
@@ -457,48 +490,6 @@ export default function ResultsPage() {
 
   const { resume } = session;
   const { scores, findings } = analysis;
-  const grade = scoreToGrade(scores.parseHealth);
-
-  // Combine findings with JD findings
-  const allFindings: Finding[] = [
-    ...findings,
-    ...(coverage?.findings || []),
-    ...(knockoutRisk?.findings || []),
-  ];
-
-  // Dynamic score-based guidance
-  const guidanceItems = useMemo(() => {
-    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
-    return generateGuidance({
-      parseHealth: scores.parseHealth,
-      knockoutRisk: knockoutRisk?.risk,
-      knockoutCount: knockouts.length,
-      semanticMatch: semanticMatch?.score,
-      recruiterSearch: recruiterSearch?.score,
-      keywordCoverage: coverage?.score,
-      hasJobDescription: !!coverage,
-      hasApiKey,
-      hasAccess,
-      freeTierRemaining: freeTier.status?.remaining,
-    });
-  }, [scores.parseHealth, knockoutRisk, knockouts.length, semanticMatch, recruiterSearch, coverage, llmConfig, hasAccess, freeTier.status]);
-
-  const handleGuidanceAction = useCallback((target: GuidanceActionTarget) => {
-    switch (target) {
-      case 'findings':
-        setActiveTab('overview');
-        break;
-      case 'jobmatch':
-        setActiveTab('jobmatch');
-        break;
-      case 'ai-settings':
-        setShowKeyModal(true);
-        break;
-      case 'pricing':
-        router.push('/pricing');
-        break;
-    }
-  }, [router]);
 
   return (
     <div className="min-h-screen text-indigo-100 overflow-x-hidden">
