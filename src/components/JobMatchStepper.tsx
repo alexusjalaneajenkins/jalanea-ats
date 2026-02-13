@@ -22,7 +22,7 @@ import { RecruiterSearchPanel } from './RecruiterSearchPanel';
 import { KeywordCoveragePanel } from './KeywordCoveragePanel';
 import { KnockoutChecklist } from './KnockoutChecklist';
 import { AiFeaturesPanel } from './AiFeaturesPanel';
-import { FreeTierPrompt } from './FreeTierPrompt';
+// FreeTierPrompt removed - analysis now happens automatically via "Analyze Job Match" button
 import { ResumeImprover } from './ResumeImprover';
 
 interface Step {
@@ -270,21 +270,44 @@ export function JobMatchStepper({
         // Check if user has BYOK configured
         const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
 
-        // Show free tier prompt if available and no BYOK
-        if (!hasApiKey && onFreeTierAnalyze) {
+        // Show loading state if free tier analysis is in progress
+        if (isFreeTierAnalyzing) {
           return (
-            <FreeTierPrompt
-              status={freeTierStatus ?? null}
-              isLoading={freeTierLoading ?? false}
-              isAnalyzing={isFreeTierAnalyzing ?? false}
-              onAnalyze={onFreeTierAnalyze}
-              onConfigureClick={onConfigureClick}
-              error={freeTierError ?? null}
-            />
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-cyan-500/30 p-8 text-center">
+              <div className="w-12 h-12 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-white font-medium">Analyzing with AI...</p>
+              <p className="text-indigo-300 text-sm mt-1">This may take a few seconds</p>
+            </div>
           );
         }
 
-        // Default: show configure AI button
+        // Show error if free tier analysis failed
+        if (freeTierError) {
+          return (
+            <div className="bg-red-900/20 backdrop-blur-sm rounded-2xl border-2 border-red-500/30 p-6">
+              <h3 className="text-lg font-bold text-white mb-2">Analysis Failed</h3>
+              <p className="text-red-300 text-sm mb-4">{freeTierError}</p>
+              <div className="flex gap-3">
+                {onFreeTierAnalyze && (
+                  <button
+                    onClick={onFreeTierAnalyze}
+                    className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    Try Again
+                  </button>
+                )}
+                <button
+                  onClick={onConfigureClick}
+                  className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors text-sm font-medium"
+                >
+                  Add API Key
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        // Default: show configure AI button (no API key, no free tier result)
         return (
           <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-8 text-center">
             <div className="w-16 h-16 bg-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-purple-500/30">

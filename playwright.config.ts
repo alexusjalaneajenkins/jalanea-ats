@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:3000';
+const defaultPort = 3001;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${defaultPort}`;
 const isCI = !!process.env.CI;
 
 export default defineConfig({
@@ -20,9 +21,9 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: 'yarn dev',
+        command: `yarn dev --hostname 127.0.0.1 --port ${defaultPort}`,
         url: baseURL,
-        reuseExistingServer: !isCI,
+        reuseExistingServer: false,
         timeout: 120000,
       },
   projects: [

@@ -193,21 +193,14 @@ export default function ResultsPage() {
   const runFreeTierAnalysis = useCallback(async () => {
     if (!session || !jobText.trim()) return;
 
-    // Only run if free tier is available OR user has API key
+    // If user has their own API key, skip free tier (BYOK handles it)
     const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
-    const canUseFreeT = freeTier.status?.enabled && (freeTier.status.remaining ?? 0) > 0;
-
-    if (!canUseFreeT && !hasApiKey) {
-      console.log('Skipping free tier: no uses remaining and no API key');
-      return;
-    }
-
-    // If user has their own API key, skip free tier (they'll use BYOK)
     if (hasApiKey) {
-      console.log('User has API key, skipping free tier');
+      console.log('User has API key, using BYOK instead of free tier');
       return;
     }
 
+    // Call the free tier API - let the server handle rate limiting
     setIsFreeTierAnalyzing(true);
     setFreeTierError(null);
 
