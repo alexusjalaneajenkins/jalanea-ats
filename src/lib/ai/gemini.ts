@@ -133,6 +133,45 @@ Provide your analysis in the JSON format specified.`;
         temperature: 0.3,
         maxOutputTokens: 4096,
         responseMimeType: 'application/json',
+        // Schema enforcement guarantees valid JSON structure [EXTERNAL - Gemini research]
+        responseSchema: {
+          type: 'object',
+          properties: {
+            score: { type: 'number' },
+            summary: { type: 'string' },
+            keywordMatches: {
+              type: 'object',
+              properties: {
+                found: { type: 'array', items: { type: 'string' } },
+                missing: { type: 'array', items: { type: 'string' } },
+                matchRate: { type: 'number' },
+              },
+              required: ['found', 'missing', 'matchRate'],
+            },
+            sections: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  score: { type: 'number' },
+                  feedback: { type: 'string' },
+                },
+                required: ['name', 'score', 'feedback'],
+              },
+            },
+            formatting: {
+              type: 'object',
+              properties: {
+                issues: { type: 'array', items: { type: 'string' } },
+                suggestions: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['issues', 'suggestions'],
+            },
+            overallSuggestions: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['score', 'summary', 'keywordMatches', 'sections', 'formatting', 'overallSuggestions'],
+        },
       },
     }),
   }
