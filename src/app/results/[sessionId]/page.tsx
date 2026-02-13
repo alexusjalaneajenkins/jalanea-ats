@@ -189,9 +189,24 @@ export default function ResultsPage() {
     await setConsent(true);
   };
 
-  // Handle free tier analysis
-  const handleFreeTierAnalysis = useCallback(async () => {
+  // Handle free tier analysis (called as part of combined analysis)
+  const runFreeTierAnalysis = useCallback(async () => {
     if (!session || !jobText.trim()) return;
+
+    // Only run if free tier is available OR user has API key
+    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+    const canUseFreeT = freeTier.status?.enabled && (freeTier.status.remaining ?? 0) > 0;
+
+    if (!canUseFreeT && !hasApiKey) {
+      console.log('Skipping free tier: no uses remaining and no API key');
+      return;
+    }
+
+    // If user has their own API key, skip free tier (they'll use BYOK)
+    if (hasApiKey) {
+      console.log('User has API key, skipping free tier');
+      return;
+    }
 
     setIsFreeTierAnalyzing(true);
     setFreeTierError(null);
@@ -205,7 +220,7 @@ export default function ResultsPage() {
     } finally {
       setIsFreeTierAnalyzing(false);
     }
-  }, [session, jobText, freeTier]);
+  }, [session, jobText, freeTier, llmConfig]);
 
   // Load session on mount
   useEffect(() => {
@@ -372,12 +387,16 @@ export default function ResultsPage() {
           console.error('Failed to save to history:', err);
         }
       }
+
+      // Also trigger free tier AI analysis (runs in parallel after local analysis completes)
+      // This is non-blocking - we don't await it since local results are already shown
+      runFreeTierAnalysis();
     } catch (err) {
       console.error('Error analyzing job description:', err);
     } finally {
       setIsAnalyzingJD(false);
     }
-  }, [session, jobText, llmConfig, historySaved, vendorResult, jobUrl]);
+  }, [session, jobText, llmConfig, historySaved, vendorResult, jobUrl, runFreeTierAnalysis]);
 
   // Handle knockout confirmation change
   const handleKnockoutChange = useCallback(
@@ -837,7 +856,7 @@ export default function ResultsPage() {
                     freeTierResult={freeTierResult}
                     isFreeTierAnalyzing={isFreeTierAnalyzing}
                     freeTierError={freeTierError}
-                    onFreeTierAnalyze={handleFreeTierAnalysis}
+                    onFreeTierAnalyze={runFreeTierAnalysis}
                   />
                 )}
               </div>

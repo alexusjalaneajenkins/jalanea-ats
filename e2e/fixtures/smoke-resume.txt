@@ -1,0 +1,22 @@
+Alex Candidate
+Senior Software Engineer
+alex@example.com | (555) 123-4567 | Austin, TX
+
+Summary
+Senior software engineer with 8 years of experience building React and TypeScript web applications.
+Led migrations to Next.js, improved page performance by 35%, and shipped API integrations in Node.js.
+
+Experience
+Staff Software Engineer, Acme Apps (2021-Present)
+- Built and maintained customer-facing React + TypeScript features used by 200k monthly users.
+- Led a Next.js migration that reduced load times and improved Core Web Vitals.
+- Collaborated with product and design teams to deliver roadmap features.
+- Mentored engineers and improved release reliability with CI/CD automation.
+
+Software Engineer, Bright Labs (2018-2021)
+- Developed Node.js APIs and PostgreSQL data models for analytics features.
+- Improved search relevance and query performance for recruiter workflows.
+- Partnered with cross-functional teams to scope and deliver product increments.
+
+Skills
+React, TypeScript, Next.js, Node.js, PostgreSQL, SQL, REST APIs, AWS, CI/CD, Jest

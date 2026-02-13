@@ -91,7 +91,15 @@ export default function AccountPage() {
   }
 
   if (!user) {
-    return null;
+    return (
+      <>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-indigo-300">Redirecting to login...</div>
+        </div>
+        {/* Keep AnimatePresence mounted across render branches */}
+        <AnimatePresence />
+      </>
+    );
   }
 
   const formatDate = (dateStr: string | null) => {

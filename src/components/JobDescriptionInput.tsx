@@ -2,10 +2,29 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Target, ClipboardPaste, Link2, Bot, Search, X, Key, Sparkles, Zap, CreditCard } from 'lucide-react';
+import { Target, ClipboardPaste, Link2, Bot, Search, X, Key, Zap, Clock } from 'lucide-react';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import type { FreeTierStatus } from '@/hooks/useFreeTier';
 import Link from 'next/link';
+
+/**
+ * Calculate time remaining until reset
+ */
+function formatTimeUntilReset(resetAt: string): string {
+  const now = new Date();
+  const reset = new Date(resetAt);
+  const diffMs = reset.getTime() - now.getTime();
+
+  if (diffMs <= 0) return 'now';
+
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
 
 interface JobDescriptionInputProps {
   /** Current job description text */
@@ -398,6 +417,52 @@ Benefits:
 
       {/* Footer with analyze button */}
       <div className="px-5 py-4 border-t border-indigo-500/20">
+        {/* Free tier status - prominent display */}
+        {freeTierStatus?.enabled && charCount > 50 && (
+          <div className={`mb-3 p-3 rounded-xl border ${
+            demoAvailable
+              ? 'bg-emerald-900/30 border-emerald-500/30'
+              : 'bg-amber-900/30 border-amber-500/30'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className={`w-4 h-4 ${demoAvailable ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <span className={`text-sm font-medium ${demoAvailable ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {demoAvailable
+                    ? `${demoRemaining} of 3 free analyses remaining`
+                    : 'Daily limit reached (0 of 3)'
+                  }
+                </span>
+              </div>
+              {freeTierStatus.resetAt && (
+                <div className="flex items-center gap-1.5 text-xs text-indigo-300">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Resets in {formatTimeUntilReset(freeTierStatus.resetAt)}</span>
+                </div>
+              )}
+            </div>
+            {!demoAvailable && (
+              <div className="mt-2 flex items-center gap-2">
+                {onOpenApiKeyModal && (
+                  <button
+                    onClick={onOpenApiKeyModal}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Add Gemini Key
+                  </button>
+                )}
+                <Link
+                  href="/pricing"
+                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                >
+                  or subscribe for unlimited
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs">
             {!hasResume ? (
@@ -406,21 +471,25 @@ Benefits:
               </span>
             ) : charCount < 50 ? (
               <span className="text-indigo-400">Paste at least 50 characters to analyze</span>
+            ) : !demoAvailable && !hasApiKey ? (
+              <span className="text-amber-400">
+                Add API key or wait for reset to analyze
+              </span>
             ) : (
               <span className="text-emerald-400">
-                Ready to analyze keyword match
+                Ready to analyze
               </span>
             )}
           </p>
 
           <button
             onClick={handleAnalyze}
-            disabled={!canAnalyze}
+            disabled={!canAnalyze || (!demoAvailable && !hasApiKey)}
             className={`
               px-5 py-2.5 text-sm font-bold rounded-xl
               transition-all duration-200
               ${
-                canAnalyze
+                canAnalyze && (demoAvailable || hasApiKey)
                   ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white hover:opacity-90 shadow-lg'
                   : 'bg-indigo-800/50 text-indigo-500 cursor-not-allowed border border-indigo-700/50'
               }
@@ -454,62 +523,6 @@ Benefits:
             )}
           </button>
         </div>
-
-        {/* AI access prompt */}
-        {!hasApiKey && charCount > 50 && (
-          <div className="mt-3 p-3 bg-indigo-900/50 border border-indigo-500/30 rounded-xl">
-            <div className="flex items-start gap-3">
-              <div className="p-1.5 bg-cyan-500/20 rounded-lg shrink-0">
-                {demoAvailable ? (
-                  <Zap className="w-4 h-4 text-cyan-300" />
-                ) : (
-                  <Sparkles className="w-4 h-4 text-cyan-400" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white">
-                  {demoAvailable ? 'Demo AI ready' : 'Unlock AI-Powered Analysis'}
-                </p>
-                <p className="text-xs text-indigo-300 mt-0.5">
-                  {demoAvailable
-                    ? `You can run the demo now${demoRemaining !== null ? ` (${demoRemaining} left today)` : ''}. Add your Gemini key for unlimited AI tools.`
-                    : 'Daily demo uses are exhausted. Add your Gemini key or subscribe for unlimited AI analysis.'}
-                </p>
-
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {demoAvailable && (
-                    <button
-                      onClick={onAnalyze}
-                      disabled={!canAnalyze}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      Run Demo Analysis
-                    </button>
-                  )}
-                  {onOpenApiKeyModal && (
-                    <button
-                      onClick={onOpenApiKeyModal}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
-                    >
-                      <Key className="w-3.5 h-3.5" />
-                      Add Gemini Key
-                    </button>
-                  )}
-                  {!demoAvailable && (
-                    <Link
-                      href="/pricing"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg transition-colors"
-                    >
-                      <CreditCard className="w-3.5 h-3.5" />
-                      Subscribe $5/mo
-                    </Link>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

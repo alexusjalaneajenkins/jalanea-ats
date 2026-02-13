@@ -43,3 +43,5 @@ next-env.d.ts
 # Test files
 test-resumes/
 testing/
+playwright-report/
+test-results/
