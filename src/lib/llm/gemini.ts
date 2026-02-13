@@ -290,7 +290,9 @@ export class GeminiProvider implements LlmProvider {
             generationConfig: {
               temperature: 0.3, // Lower temperature for more consistent output
               topP: 0.8,
-              maxOutputTokens: 2048, // Increased for semantic matching responses
+              // Gemini 2.5 Flash uses "thinking tokens" internally that count against the limit.
+              // With 8192, even if model uses 4000 thinking tokens, we have 4000+ for output.
+              maxOutputTokens: 8192,
               responseMimeType: 'application/json', // Enable JSON mode for Gemini 3
             },
             safetySettings: [
