@@ -270,12 +270,22 @@ export async function POST(request: NextRequest) {
         result = parseATSAnalysisResponse(retryResponse);
       } catch (retryError) {
         console.error('Retry parse failed:', retryError);
-        console.error('Retry raw response:', retryResponse);
+        console.error('Retry raw response (first 500 chars):', retryResponse?.slice(0, 500));
 
         await safeRefund();
 
+        // Include diagnostic info to help debug
+        const errorMessage = retryError instanceof Error ? retryError.message : 'Unknown parse error';
+        const responsePreview = retryResponse?.slice(0, 200) || 'No response';
+
         return NextResponse.json(
-          { error: 'Failed to parse analysis. Please try again.' },
+          {
+            error: 'Failed to parse analysis. Please try again.',
+            debug: {
+              parseError: errorMessage,
+              responsePreview: responsePreview,
+            }
+          },
           { status: 500 }
         );
       }
