@@ -10,6 +10,15 @@ import type { SupabaseClient, User, Session } from '@supabase/supabase-js';
 
 let supabaseInstance: SupabaseClient | null = null;
 
+const OWNER_UNLIMITED_EMAILS = new Set([
+  'alexxusjenkins91@gmail.com',
+]);
+
+function hasOwnerUnlimitedAccess(email?: string | null): boolean {
+  if (!email) return false;
+  return OWNER_UNLIMITED_EMAILS.has(email.trim().toLowerCase());
+}
+
 /**
  * Get or create a Supabase browser client.
  * Uses singleton pattern for consistent auth state.
@@ -201,19 +210,33 @@ export async function checkSubscriptionStatus(): Promise<{
     return { hasAccess: false, isLifetime: false, subscription: null, error: 'Not authenticated' };
   }
 
+  // Owner account override so the primary Jalanea ATS account always has full access.
+  if (hasOwnerUnlimitedAccess(user.email)) {
+    return {
+      hasAccess: true,
+      isLifetime: true,
+      subscription: {
+        status: 'active',
+        currentPeriodEnd: null,
+      },
+      error: null,
+    };
+  }
+
   // Query subscriptions table
-  const { data: subscription, error } = await supabase
+  const { data: subscriptions, error } = await supabase
     .from('subscriptions')
     .select('status, is_lifetime, current_period_end')
     .eq('user_id', user.id)
     .in('status', ['active', 'trialing'])
     .order('created', { ascending: false })
-    .limit(1)
-    .single();
+    .limit(1);
 
-  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
+  if (error) {
     return { hasAccess: false, isLifetime: false, subscription: null, error: error.message };
   }
+
+  const subscription = subscriptions?.[0] ?? null;
 
   if (!subscription) {
     return { hasAccess: false, isLifetime: false, subscription: null, error: null };
