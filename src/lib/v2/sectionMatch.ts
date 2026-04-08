@@ -11,30 +11,76 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s\-\/\+\#\.]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** Extract acronyms from parentheses: "Applied Behavior Analysis (ABA)" → ["aba"] */
+function extractAcronyms(text: string): string[] {
+  const matches = text.match(/\(([A-Za-z]{2,})\)/g) || [];
+  return matches.map(m => m.replace(/[()]/g, '').toLowerCase());
+}
+
+/** Extract the core skill name, stripping qualifiers and experience requirements */
+const NOISE_WORDS = new Set([
+  'experience', 'knowledge', 'proficiency', 'familiarity', 'with',
+  'in', 'of', 'or', 'and', 'the', 'a', 'an', 'year', 'years',
+  'minimum', 'required', 'preferred', 'strong', 'demonstrated',
+  'proven', 'ability', 'to', 'working', 'using',
+]);
+
+function getCoreTerms(text: string): string[] {
+  return normalize(text).split(' ')
+    .filter(t => t.length > 1 && !NOISE_WORDS.has(t) && !/^\d+$/.test(t));
+}
+
 function findInStrings(items: string[], searchTerm: string): { found: boolean; match?: string } {
   const norm = normalize(searchTerm);
-  const terms = norm.split(' ').filter(t => t.length > 1);
+  const acronyms = extractAcronyms(searchTerm);
+  const coreTerms = getCoreTerms(searchTerm);
+  
   for (const item of items) {
     const normItem = normalize(item);
-    // Exact substring match
-    if (normItem.includes(norm)) return { found: true, match: item };
-    // All significant words present
-    if (terms.length > 1 && terms.every(t => normItem.includes(t))) return { found: true, match: item };
+    const itemAcronyms = extractAcronyms(item);
+    
+    // Direct substring match (either direction — item in search or search in item)
+    if (normItem.includes(norm) || norm.includes(normItem)) return { found: true, match: item };
+    
+    // Acronym match: "ABA" from search found in item, or item's acronym in search
+    if (acronyms.some(a => normItem === a || normItem.includes(a))) return { found: true, match: item };
+    if (itemAcronyms.some(a => norm.includes(a))) return { found: true, match: item };
+    
+    // Core terms: if most core terms (>= 60%) are present in the item
+    if (coreTerms.length > 0) {
+      const matchCount = coreTerms.filter(t => normItem.includes(t)).length;
+      if (matchCount >= Math.max(1, Math.ceil(coreTerms.length * 0.6))) return { found: true, match: item };
+    }
+    
+    // Reverse: item's core words found in the search term (handles short items matching verbose searches)
+    const itemCoreTerms = getCoreTerms(item);
+    if (itemCoreTerms.length > 0 && itemCoreTerms.every(t => norm.includes(t))) return { found: true, match: item };
   }
   return { found: false };
 }
 
 function findInBullets(workHistory: ParsedResume['workHistory'], searchTerm: string): { found: boolean; match?: string } {
   const norm = normalize(searchTerm);
-  const terms = norm.split(' ').filter(t => t.length > 1);
+  const acronyms = extractAcronyms(searchTerm);
+  const coreTerms = getCoreTerms(searchTerm);
+  
   for (const job of workHistory) {
     for (const bullet of job.bullets) {
       const normBullet = normalize(bullet);
+      // Direct match
       if (normBullet.includes(norm)) return { found: true, match: `[${job.title}] ${bullet}` };
-      if (terms.length > 1 && terms.every(t => normBullet.includes(t))) return { found: true, match: `[${job.title}] ${bullet}` };
+      // Acronym match
+      if (acronyms.some(a => normBullet.includes(a))) return { found: true, match: `[${job.title}] ${bullet}` };
+      // Core terms match (>= 60%)
+      if (coreTerms.length > 0) {
+        const matchCount = coreTerms.filter(t => normBullet.includes(t)).length;
+        if (matchCount >= Math.max(1, Math.ceil(coreTerms.length * 0.6))) return { found: true, match: `[${job.title}] ${bullet}` };
+      }
     }
     // Also check job title
-    if (normalize(job.title).includes(norm)) return { found: true, match: `Job title: ${job.title} at ${job.company}` };
+    const normTitle = normalize(job.title);
+    if (normTitle.includes(norm)) return { found: true, match: `Job title: ${job.title} at ${job.company}` };
+    if (acronyms.some(a => normTitle.includes(a))) return { found: true, match: `Job title: ${job.title} at ${job.company}` };
   }
   return { found: false };
 }
