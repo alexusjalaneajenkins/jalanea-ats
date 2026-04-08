@@ -153,6 +153,85 @@ const COMPOUND_SKILLS_DICT = new Set([
 ]);
 
 /**
+ * Healthcare, behavioral health, and education keywords
+ */
+const HEALTHCARE_DICT = new Set([
+  // ABA / Behavioral Health
+  'aba', 'aba therapy', 'applied behavior analysis', 'behavior analysis',
+  'rbt', 'registered behavior technician', 'bcba', 'bcaba',
+  'board certified behavior analyst', 'behavior technician',
+  'behavior modification', 'behavior reduction', 'behavior support',
+  'behavioral data', 'data collection', 'discrete trial training', 'dtt',
+  'natural environment teaching', 'net', 'verbal behavior',
+  'positive reinforcement', 'reinforcement', 'prompting',
+  'prompt fading', 'task analysis', 'functional behavior assessment', 'fba',
+  'behavior intervention plan', 'bip', 'treatment plan',
+  'treatment plans', 'individualized treatment', 'session notes',
+  'target behaviors', 'skill acquisition', 'behavior reduction strategies',
+  'antecedent', 'consequence', 'abc data', 'interval recording',
+  'frequency recording', 'duration recording', 'latency recording',
+  'stimulus control', 'generalization', 'maintenance',
+  'pairing', 'manding', 'tacting', 'echoics', 'intraverbals',
+
+  // Autism / Disabilities
+  'autism', 'autism spectrum disorder', 'asd',
+  'developmental disabilities', 'intellectual disabilities',
+  'special needs', 'special education',
+
+  // Clinical / Healthcare General
+  'hipaa', 'patient care', 'clinical documentation', 'emr', 'ehr',
+  'electronic health records', 'medical terminology',
+  'cpr', 'first aid', 'cpr certified', 'bls',
+  'infection control', 'universal precautions',
+  'crisis intervention', 'de-escalation',
+  'occupational therapy', 'speech therapy', 'physical therapy',
+  'multidisciplinary team', 'interdisciplinary team',
+  'caregiver training', 'parent training',
+
+  // Childcare / Education
+  'childcare', 'child development', 'early childhood',
+  'individualized education program', 'iep',
+  'lesson plans', 'curriculum', 'classroom management',
+  'one-on-one', '1:1', 'one on one',
+  'structured instruction', 'visual supports', 'social skills',
+  'adaptive skills', 'daily living skills',
+
+  // Compliance / Background
+  'background check', 'level 2 background', 'level ii background',
+  'fingerprinting', 'drug screening', 'clearance',
+  'mandatory reporting', 'abuse reporting',
+
+  // Scheduling / Work Style
+  'caseload', 'center-based', 'home-based', 'in-home',
+  'clinic-based', 'school-based', 'community-based',
+  'reliable transportation', 'valid driver\'s license',
+  'monday to friday', 'no weekends', 'flexible schedule',
+]);
+
+/**
+ * Compound healthcare/ABA phrases that should match as units
+ */
+const COMPOUND_HEALTHCARE_DICT = new Set([
+  'applied behavior analysis', 'registered behavior technician',
+  'board certified behavior analyst', 'autism spectrum disorder',
+  'discrete trial training', 'natural environment teaching',
+  'functional behavior assessment', 'behavior intervention plan',
+  'positive reinforcement', 'behavior reduction strategies',
+  'skill acquisition', 'data collection', 'treatment plans',
+  'individualized treatment', 'parent training', 'caregiver training',
+  'social skills', 'adaptive skills', 'daily living skills',
+  'crisis intervention', 'session notes', 'target behaviors',
+  'structured instruction', 'visual supports',
+  'background check', 'level 2 background check',
+  'reliable transportation', 'valid driver\'s license',
+  'electronic health records', 'multidisciplinary team',
+  'occupational therapy', 'speech therapy', 'physical therapy',
+  'team meetings', 'training sessions', 'team meetings and training sessions',
+  'professional development', 'career advancement',
+  'client progress', 'individualized treatment plans',
+]);
+
+/**
  * Certifications and qualifications
  */
 const CERTIFICATIONS_DICT = new Set([
@@ -165,6 +244,13 @@ const CERTIFICATIONS_DICT = new Set([
 
   // General
   'six sigma', 'lean six sigma', 'green belt', 'black belt',
+
+  // Healthcare / Behavioral
+  'rbt', 'rbt certified', 'rbt certification',
+  'bcba', 'bcaba', 'cpr certified', 'bls certified',
+  'first aid certified', 'cpi certified',
+  'high school diploma', 'ged', 'associate degree',
+  'bachelor degree', 'bachelors degree',
 ]);
 
 /**
@@ -196,19 +282,25 @@ export function extractKeywords(jobText: string): KeywordSet {
   const normalizedText = normalizeText(jobText);
   const foundKeywords = new Map<string, number>(); // keyword -> score
 
-  // Step 1: Extract tools (highest value)
+  // Step 1: Extract compound healthcare phrases first (highest specificity)
+  extractFromDictionary(normalizedText, COMPOUND_HEALTHCARE_DICT, foundKeywords, 9);
+
+  // Step 2: Extract healthcare/ABA terms
+  extractFromDictionary(normalizedText, HEALTHCARE_DICT, foundKeywords, 8);
+
+  // Step 3: Extract tools (highest value for tech roles)
   extractFromDictionary(normalizedText, TOOLS_DICT, foundKeywords, 10);
 
-  // Step 2: Extract compound skills (high value - must come before single words)
+  // Step 4: Extract compound skills (high value - must come before single words)
   extractFromDictionary(normalizedText, COMPOUND_SKILLS_DICT, foundKeywords, 8);
 
-  // Step 3: Extract tech skills
+  // Step 5: Extract tech skills
   extractFromDictionary(normalizedText, TECH_SKILLS_DICT, foundKeywords, 7);
 
-  // Step 4: Extract soft skills
+  // Step 6: Extract soft skills
   extractFromDictionary(normalizedText, SOFT_SKILLS_DICT, foundKeywords, 5);
 
-  // Step 5: Extract certifications
+  // Step 7: Extract certifications
   extractFromDictionary(normalizedText, CERTIFICATIONS_DICT, foundKeywords, 9);
 
   // Step 6: Boost keywords found in requirement sections
@@ -421,6 +513,24 @@ function capitalizeKeyword(keyword: string): string {
     'chatgpt': 'ChatGPT',
     'tensorflow': 'TensorFlow',
     'pytorch': 'PyTorch',
+    // Healthcare / ABA
+    'aba': 'ABA',
+    'rbt': 'RBT',
+    'bcba': 'BCBA',
+    'bcaba': 'BCaBA',
+    'asd': 'ASD',
+    'dtt': 'DTT',
+    'net': 'NET',
+    'fba': 'FBA',
+    'bip': 'BIP',
+    'hipaa': 'HIPAA',
+    'emr': 'EMR',
+    'ehr': 'EHR',
+    'cpr': 'CPR',
+    'bls': 'BLS',
+    'iep': 'IEP',
+    'ged': 'GED',
+    '1:1': '1:1',
   };
 
   const lower = keyword.toLowerCase();
@@ -468,6 +578,23 @@ export const SKILL_SYNONYMS: Record<string, string[]> = {
   'customer success': ['cs', 'csm'],
   'customer satisfaction': ['csat'],
   'net promoter score': ['nps'],
+  // Healthcare / ABA
+  'applied behavior analysis': ['aba', 'aba therapy', 'behavior analysis'],
+  'registered behavior technician': ['rbt', 'behavior technician'],
+  'board certified behavior analyst': ['bcba'],
+  'autism spectrum disorder': ['asd', 'autism'],
+  'discrete trial training': ['dtt'],
+  'functional behavior assessment': ['fba'],
+  'behavior intervention plan': ['bip'],
+  'data collection': ['behavioral data', 'data recording', 'collecting data'],
+  'treatment plans': ['treatment plan', 'individualized treatment plans', 'individualized treatment'],
+  'positive reinforcement': ['reinforcement strategies', 'reinforcement'],
+  '1:1': ['one-on-one', 'one on one', '1 on 1', '1-on-1'],
+  'team meetings': ['team meetings and training sessions', 'training sessions'],
+  'background check': ['level 2 background', 'level ii background', 'background screening'],
+  'reliable transportation': ['valid driver\'s license', 'driver\'s license'],
+  'high school diploma': ['ged', 'high school diploma or equivalent'],
+  'no weekends': ['monday to friday', 'monday through friday'],
 };
 
 /**

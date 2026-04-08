@@ -418,10 +418,36 @@ function buildAtsReview(
 }
 
 function getMeaningfulLines(text: string): string[] {
+  /** Patterns that indicate metadata/noise rather than job content */
+  const NOISE_PATTERNS = [
+    /^\$[\d,.]+\s*(an?\s+hour|per\s+hour|\/hr|\/hour|\/year|per\s+year|salary)/i,
+    /^(pay|salary|compensation|wage):\s*\$/i,
+    /^\d+[\.,]?\d*\s*(an?\s+hour|per\s+hour)/i,
+    /^(job\s+type|employment\s+type|schedule|shift\s+and\s+schedule|posted|date\s+posted):/i,
+    /^(full[- ]time|part[- ]time|contract|temporary|internship|per\s+diem)$/i,
+    /^(benefits|perks)\s*(pulled|from|included)/i,
+    /^pulled\s+from\s+the\s+full\s+job\s+description/i,
+    /^(application\s+question|apply\s+now|apply\s+today|ready\s+to\s+join|equal\s+opportunity)/i,
+    /^(job\s+details|about\s+the\s+job|about\s+us|who\s+we\s+are|our\s+company)\s*$/i,
+    /^(work\s+location|location):\s*(in\s+person|remote|hybrid|on[- ]?site)/i,
+    /^[-•]\s*(401\(k\)|dental|vision|health|life)\s+insurance/i,
+    /^[-•]\s*(paid\s+time\s+off|pto|flexible\s+schedule|referral\s+program|tuition)/i,
+    /^[-•]\s*(employee\s+assistance|health\s+savings|disability)/i,
+    /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+to\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i,
+    /^(no\s+weekends|no\s+nights|no\s+evenings)$/i,
+    /^(this\s+role\s+requires|do\s+you\s+meet\s+this\s+requirement)/i,
+    /^show\s+\d+\s+more/i,
+    /^(indeed|glassdoor|linkedin|ziprecruiter)\s+(prime|featured|sponsored)/i,
+  ];
+
   return text
     .split(/\n+/)
     .map((line) => line.replace(/[•*\u2022]/g, ' ').trim())
-    .filter((line) => line.length > 20);
+    .filter((line) => {
+      if (line.length <= 20) return false;
+      // Filter out noise/metadata lines
+      return !NOISE_PATTERNS.some((pattern) => pattern.test(line));
+    });
 }
 
 function extractTitleHint(lines: string[]): string | null {
@@ -475,7 +501,7 @@ function classifySignal(line: string, fallback: JobSignal['category']): JobSigna
 }
 
 function extractTools(text: string): string[] {
-  const matches = text.match(/\b(SQL|Python|Excel|Salesforce|Zendesk|Jira|Tableau|Power BI|React|TypeScript|JavaScript|AWS|GCP|Azure|HubSpot|Workday|Greenhouse|Lever|Figma|Photoshop|Illustrator)\b/gi) || [];
+  const matches = text.match(/\b(SQL|Python|Excel|Salesforce|Zendesk|Jira|Tableau|Power BI|React|TypeScript|JavaScript|AWS|GCP|Azure|HubSpot|Workday|Greenhouse|Lever|Figma|Photoshop|Illustrator|CentralReach|Catalyst|ABA Matrix|Rethink|Hi Rasmus|Motivity|BehaviorSoft|Therap|EMR|EHR)\b/gi) || [];
   return uniqueList(matches.map((match) => match.trim()));
 }
 

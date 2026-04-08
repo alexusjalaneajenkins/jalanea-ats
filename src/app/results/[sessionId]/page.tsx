@@ -656,15 +656,23 @@ export default function ResultsPage() {
     }, 0);
   };
 
+  // Derive the best available AI match score: prefer BYOK semantic, fall back to free tier
+  const effectiveAiScore = semanticMatch?.success
+    ? semanticMatch.score
+    : freeTierResult?.score != null
+      ? freeTierResult.score
+      : undefined;
+  const hasAnyAiScore = effectiveAiScore !== undefined;
+
   const renderScoreCards = () => (
     <ScoreCardGrid
       scores={scores}
       knockoutRisk={knockoutRisk?.risk || 'low'}
       knockoutCount={knockouts.filter(k => k.userConfirmed === false || k.userConfirmed === undefined).length}
-      semanticMatch={semanticMatch?.success ? semanticMatch.score : undefined}
-      isSemanticLoading={isAnalyzingSemantic}
+      semanticMatch={effectiveAiScore}
+      isSemanticLoading={isAnalyzingSemantic || isFreeTierAnalyzing}
       recruiterSearch={recruiterSearch?.score}
-      hasByokConfigured={hasByokConfigured}
+      hasByokConfigured={hasByokConfigured || hasAnyAiScore}
       hasJobDescription={jobText.trim().length > 50}
       onConfigureByok={() => setShowKeyModal(true)}
       onAddJobDescription={scrollToStep2}
