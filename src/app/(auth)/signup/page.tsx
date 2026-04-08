@@ -17,6 +17,7 @@ export default function SignUpPage() {
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const meetsMinLength = password.length >= 6;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,6 +218,9 @@ export default function SignUpPage() {
                     placeholder="At least 6 characters"
                   />
                 </div>
+                <p className={`mt-2 text-xs ${meetsMinLength ? 'text-emerald-300' : 'text-indigo-400'}`}>
+                  {meetsMinLength ? '✓' : '○'} 6+ characters
+                </p>
               </div>
 
               <div>
@@ -266,9 +270,9 @@ export default function SignUpPage() {
         <div className="mt-6 flex justify-center">
           <Link
             href="/"
-            className="px-5 py-2 rounded-xl bg-indigo-600/30 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-600/50 hover:text-white transition-all text-sm font-medium"
+            className="text-sm text-indigo-300 hover:text-white transition-colors"
           >
-            Back to home
+            ← Back to home
           </Link>
         </div>
       </motion.div>

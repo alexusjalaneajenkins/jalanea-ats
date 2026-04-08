@@ -92,13 +92,19 @@ export async function POST(request: Request) {
     const safeSubject = escapeHtml(normalizedSubject);
     const safeMessageHtml = escapeHtml(normalizedMessage).replace(/\n/g, '<br />');
 
+    const supportEmail = process.env.CONTACT_TO_EMAIL || 'support-ats@jalanea.dev';
+    const senderEmail =
+      process.env.CONTACT_FROM_EMAIL || 'Jalanea ATS <onboarding@resend.dev>';
+
     // Check for Resend API key
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
       console.error('RESEND_API_KEY not configured');
       return NextResponse.json(
-        { error: 'Contact form is not configured. Please try again later.' },
-        { status: 500 }
+        {
+          error: `Contact form is not configured yet. Please email ${supportEmail} directly.`,
+        },
+        { status: 503 }
       );
     }
 
@@ -110,8 +116,8 @@ export async function POST(request: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Jalanea ATS <noreply@jalanea.dev>',
-        to: ['ats-support@jalanea.dev'],
+        from: senderEmail,
+        to: [supportEmail],
         reply_to: normalizedEmail,
         subject: normalizedSubject
           ? `[Contact] ${normalizedSubject}`
@@ -144,8 +150,8 @@ Reply directly to this email to respond to ${normalizedName}.
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('Resend API error:', error);
+      const errorText = await response.text();
+      console.error('Resend API error:', response.status, errorText);
       return NextResponse.json(
         { error: 'Failed to send message. Please try again.' },
         { status: 500 }

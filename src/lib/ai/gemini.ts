@@ -97,6 +97,15 @@ Important scoring guidelines:
 - 50-74: Moderate match, needs optimization
 - Below 50: Poor match, significant improvements needed
 
+Output constraints (required):
+- Keep summary to <= 220 characters.
+- Keep each section feedback to <= 220 characters.
+- Return at most 12 items in keywordMatches.found.
+- Return at most 10 items in keywordMatches.missing.
+- Return at most 4 items in formatting.issues.
+- Return at most 4 items in formatting.suggestions.
+- Return at most 4 items in overallSuggestions.
+
 Focus on:
 1. Keyword matching between job description and resume
 2. Standard section presence and formatting
@@ -131,7 +140,7 @@ Provide your analysis in the JSON format specified.`;
       ],
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 6144,
         responseMimeType: 'application/json',
         // Schema enforcement guarantees valid JSON structure [EXTERNAL - Gemini research]
         responseSchema: {

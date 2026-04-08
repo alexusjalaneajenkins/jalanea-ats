@@ -104,7 +104,7 @@ export default function ContactPage() {
             </div>
             <h2 className="text-xl font-semibold text-white mb-2">Message Sent!</h2>
             <p className="text-sm text-indigo-300 mb-6">
-              Thanks for reaching out. We&apos;ll get back to you as soon as possible.
+              Thanks for reaching out. We typically respond within 1-3 business days.
             </p>
             <button
               onClick={() => setFormState('idle')}
@@ -226,6 +226,9 @@ export default function ContactPage() {
                 </>
               )}
             </button>
+            <p className="text-xs text-indigo-400 text-center">
+              Response time: 1-3 business days
+            </p>
           </motion.form>
         )}
 

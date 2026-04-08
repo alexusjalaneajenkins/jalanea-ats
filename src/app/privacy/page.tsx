@@ -7,8 +7,25 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPolicyPage() {
+  const sections = [
+    { id: 'introduction', label: 'Introduction' },
+    { id: 'on-device-processing', label: 'On-Device Processing' },
+    { id: 'local-storage', label: 'Local Storage' },
+    { id: 'byok-mode', label: 'BYOK Mode' },
+    { id: 'api-key-handling', label: 'API Key Handling' },
+    { id: 'what-we-dont-collect', label: 'What We Do Not Collect' },
+    { id: 'analytics', label: 'Analytics' },
+    { id: 'your-rights', label: 'Your Rights' },
+    { id: 'third-party-services', label: 'Third-Party Services' },
+    { id: 'children-privacy', label: 'Children\'s Privacy' },
+    { id: 'policy-changes', label: 'Policy Changes' },
+    { id: 'contact', label: 'Contact' },
+  ];
+
+  const sectionClass = 'pt-6 border-t border-gray-800/70';
+
   return (
-    <div className="min-h-screen bg-forge-950 text-gray-100">
+    <div className="min-h-screen text-gray-100">
       {/* Header */}
       <header className="border-b border-gray-800">
         <div className="max-w-4xl mx-auto px-4 py-6">
@@ -41,8 +58,23 @@ export default function PrivacyPolicyPage() {
             </ul>
           </section>
 
+          <section className="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+            <h2 className="text-lg font-semibold text-white mt-0 mb-3">Table of Contents</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {sections.map((section) => (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className="text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+                >
+                  {section.label}
+                </a>
+              ))}
+            </div>
+          </section>
+
           {/* Introduction */}
-          <section>
+          <section id="introduction" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Introduction</h2>
             <p className="text-gray-300">
               Jalanea ATS (&quot;we,&quot; &quot;our,&quot; or &quot;the Service&quot;) is built on a privacy-first
@@ -52,7 +84,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* On-Device Processing */}
-          <section>
+          <section id="on-device-processing" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">On-Device Processing (Default Mode)</h2>
             <p className="text-gray-300">
               By default, Jalanea ATS processes your resume <strong>entirely within your browser</strong>.
@@ -75,7 +107,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Local Storage */}
-          <section>
+          <section id="local-storage" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Local Storage</h2>
             <p className="text-gray-300">
               To provide features like session history and saved analyses, we store data locally on
@@ -98,7 +130,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* BYOK Mode */}
-          <section>
+          <section id="byok-mode" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Bring Your Own Key (BYOK) Mode</h2>
             <p className="text-gray-300">
               BYOK mode is an optional feature that uses third-party AI services (like Google Gemini)
@@ -120,7 +152,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* API Key Handling */}
-          <section>
+          <section id="api-key-handling" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">API Key Handling</h2>
             <p className="text-gray-300">
               If you use BYOK mode, your API key is handled with care:
@@ -142,7 +174,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* What We Don't Collect */}
-          <section>
+          <section id="what-we-dont-collect" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">What We Don&apos;t Collect</h2>
             <p className="text-gray-300">We do not collect:</p>
             <ul className="text-gray-300 space-y-1">
@@ -157,7 +189,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Analytics */}
-          <section>
+          <section id="analytics" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Analytics (If Enabled)</h2>
             <p className="text-gray-300">
               We may collect minimal, privacy-preserving analytics to improve the service. If enabled,
@@ -175,7 +207,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Your Rights */}
-          <section>
+          <section id="your-rights" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Your Rights</h2>
             <p className="text-gray-300">You have the right to:</p>
             <ul className="text-gray-300 space-y-2">
@@ -195,7 +227,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Third-Party Services */}
-          <section>
+          <section id="third-party-services" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Third-Party Services</h2>
             <p className="text-gray-300">
               If you use BYOK mode, your data is processed by third-party AI providers. Please
@@ -220,7 +252,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Children's Privacy */}
-          <section>
+          <section id="children-privacy" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Children&apos;s Privacy</h2>
             <p className="text-gray-300">
               Jalanea ATS is not intended for use by individuals under the age of 13. We do not
@@ -229,7 +261,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Changes to This Policy */}
-          <section>
+          <section id="policy-changes" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Changes to This Policy</h2>
             <p className="text-gray-300">
               We may update this privacy policy from time to time. Changes will be posted on this
@@ -239,7 +271,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           {/* Contact */}
-          <section>
+          <section id="contact" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Contact Us</h2>
             <p className="text-gray-300">
               If you have questions about this privacy policy or our data practices, please contact us at:

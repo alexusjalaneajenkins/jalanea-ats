@@ -141,7 +141,7 @@ export function AiFeaturesPanel({
             className="w-full px-4 py-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl flex items-center justify-center gap-2 transition-colors"
           >
             <Key className="w-4 h-4" />
-            <span className="font-medium">Add Gemini Key</span>
+            <span className="font-medium">Optional: Add Gemini Key</span>
           </button>
 
           <p className="text-xs text-slate-500 mt-4 text-center">

@@ -13,7 +13,7 @@
  * - Tracks all changes for undo/export
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles,
@@ -23,6 +23,7 @@ import {
   Check,
   AlertCircle,
   MousePointer2,
+  Wand2,
 } from 'lucide-react';
 import { BulletSuggestionPopover, BulletVariation } from './BulletSuggestionPopover';
 import type { GeminiModel } from '@/lib/llm/types';
@@ -34,15 +35,21 @@ interface ResumeImproverProps {
   jobDescription?: string;
   /** Missing keywords to incorporate */
   missingKeywords?: string[];
+  /** Gaps detected in AI analysis */
+  analysisGaps?: string[];
+  /** Top recommendations from AI analysis */
+  analysisRecommendations?: string[];
   /** Whether free tier or BYOK is available */
   isAiAvailable: boolean;
   /** Selected Gemini model (optional) */
   geminiModel?: GeminiModel;
   /** Callback when user wants to configure API */
   onConfigureClick?: () => void;
+  /** Callback when the working draft changes */
+  onDraftChange?: (payload: { draftText: string; changes: BulletChange[] }) => void;
 }
 
-interface BulletChange {
+export interface BulletChange {
   id: string;
   lineIndex: number;
   original: string;
@@ -54,9 +61,12 @@ export function ResumeImprover({
   resumeText,
   jobDescription,
   missingKeywords = [],
+  analysisGaps = [],
+  analysisRecommendations = [],
   isAiAvailable,
   geminiModel,
   onConfigureClick,
+  onDraftChange,
 }: ResumeImproverProps) {
   // Track all bullet changes
   const [changes, setChanges] = useState<BulletChange[]>([]);
@@ -72,6 +82,9 @@ export function ResumeImprover({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isAutoImproving, setIsAutoImproving] = useState(false);
+  const [autoImproveError, setAutoImproveError] = useState<string | null>(null);
+  const [autoImproveSummary, setAutoImproveSummary] = useState<string | null>(null);
 
   // Parse resume into lines, identifying bullets
   const lines = useMemo(() => {
@@ -105,6 +118,13 @@ export function ResumeImprover({
     return lines.map((l) => l.current).join('\n');
   }, [lines]);
 
+  useEffect(() => {
+    onDraftChange?.({
+      draftText: currentText,
+      changes,
+    });
+  }, [onDraftChange, currentText, changes]);
+
   // Fetch AI suggestions for a bullet
   const fetchSuggestions = useCallback(
     async (bullet: string) => {
@@ -120,6 +140,8 @@ export function ResumeImprover({
             bullet,
             jobDescription,
             missingKeywords,
+            gaps: analysisGaps,
+            recommendations: analysisRecommendations,
             model: geminiModel,
           }),
         });
@@ -127,7 +149,7 @@ export function ResumeImprover({
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to generate suggestions');
+          throw new Error(data.message || data.error || 'Failed to generate suggestions');
         }
 
         setVariations(data.variations);
@@ -137,7 +159,7 @@ export function ResumeImprover({
         setIsLoading(false);
       }
     },
-    [jobDescription, missingKeywords]
+    [jobDescription, missingKeywords, analysisGaps, analysisRecommendations, geminiModel]
   );
 
   // Handle bullet click
@@ -225,6 +247,97 @@ export function ResumeImprover({
     }
   }, [selectedBullet, fetchSuggestions]);
 
+  const handleAutoImprove = useCallback(async () => {
+    if (!isAiAvailable) return;
+
+    setAutoImproveError(null);
+    setAutoImproveSummary(null);
+    setIsAutoImproving(true);
+
+    try {
+      const candidateLines = lines
+        .filter((line) => line.isBullet)
+        .slice(0, 3);
+
+      if (candidateLines.length === 0) {
+        setAutoImproveError('No eligible bullet points found to improve.');
+        return;
+      }
+
+      const newChanges: BulletChange[] = [];
+
+      for (const line of candidateLines) {
+        const response = await fetch('/api/improve-bullet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bullet: line.current.trim(),
+            jobDescription,
+            missingKeywords,
+            gaps: analysisGaps,
+            recommendations: analysisRecommendations,
+            model: geminiModel,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          const message = data?.message || data?.error || 'Failed to improve bullets';
+          throw new Error(message);
+        }
+
+        const variations = Array.isArray(data?.variations) ? data.variations as BulletVariation[] : [];
+        if (variations.length === 0) {
+          continue;
+        }
+
+        const preferred =
+          variations.find((v) => v.strategy === 'high-impact') ||
+          variations.find((v) => v.strategy === 'leadership') ||
+          variations[0];
+
+        if (!preferred?.text?.trim()) {
+          continue;
+        }
+
+        newChanges.push({
+          id: `auto-${line.index}-${Date.now()}`,
+          lineIndex: line.index,
+          original: lines[line.index].original,
+          improved: preferred.text.trim(),
+          timestamp: Date.now(),
+        });
+      }
+
+      if (newChanges.length === 0) {
+        setAutoImproveError('No improved bullets were generated. Try manual bullet improvement.');
+        return;
+      }
+
+      setChanges((prev) => {
+        const byLine = new Map<number, BulletChange>();
+        for (const change of prev) byLine.set(change.lineIndex, change);
+        for (const change of newChanges) byLine.set(change.lineIndex, change);
+        return Array.from(byLine.values()).sort((a, b) => a.lineIndex - b.lineIndex);
+      });
+
+      setAutoImproveSummary(`Created an ATS-optimized draft by improving ${newChanges.length} bullet${newChanges.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      setAutoImproveError(err instanceof Error ? err.message : 'Auto-improve failed');
+    } finally {
+      setIsAutoImproving(false);
+    }
+  }, [
+    isAiAvailable,
+    lines,
+    jobDescription,
+    missingKeywords,
+    analysisGaps,
+    analysisRecommendations,
+    geminiModel,
+  ]);
+
   if (!isAiAvailable) {
     return (
       <>
@@ -261,11 +374,27 @@ export function ResumeImprover({
             Resume Improver
           </h3>
           <p className="text-sm text-indigo-300 mt-1">
-            Click any bullet point to improve it with AI
+            Click any bullet point to improve it with AI, or auto-generate an ATS-ready draft
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoImprove}
+            disabled={isAutoImproving}
+            className={`
+              flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors border
+              ${isAutoImproving
+                ? 'bg-indigo-800/40 text-indigo-400 border-indigo-700/40 cursor-not-allowed'
+                : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border-cyan-500/30'
+              }
+            `}
+            title="Automatically improve top bullets based on detected gaps and keywords"
+          >
+            <Wand2 className="w-4 h-4" />
+            {isAutoImproving ? 'Auto-Improving...' : 'Auto-Improve Draft'}
+          </button>
+
           {changes.length > 0 && (
             <button
               onClick={handleUndo}
@@ -328,6 +457,18 @@ export function ResumeImprover({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {autoImproveSummary && (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3 text-sm text-cyan-200">
+          {autoImproveSummary}
+        </div>
+      )}
+
+      {autoImproveError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-sm text-red-300">
+          {autoImproveError}
         </div>
       )}
 

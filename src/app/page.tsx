@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Sparkles, Settings, Gift, User, CreditCard, Lightbulb, FileText, Lock, Zap, Cloud } from 'lucide-react';
@@ -36,13 +36,27 @@ export default function HomePage() {
 
   // API key configuration
   const { config: llmConfig, updateConfig, setConsent } = useLlmConfig();
-  const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
 
   // Free tier status
   const freeTier = useFreeTier();
 
   // Auth status
-  const { user, hasAccess } = useAuth();
+  const { user, hasAccess, isLoading: isAuthLoading } = useAuth();
+  const canUseByok = !!user && hasAccess;
+  const hasByokConfigured = canUseByok && !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+
+  // Enforce hard gate: clear BYOK key if user is not authenticated with active subscription.
+  useEffect(() => {
+    if (isAuthLoading || canUseByok || !llmConfig) return;
+    if (!llmConfig.apiKey && !llmConfig.hasConsented) return;
+
+    void updateConfig({
+      ...llmConfig,
+      apiKey: '',
+      hasConsented: false,
+      consentTimestamp: undefined,
+    });
+  }, [isAuthLoading, canUseByok, llmConfig, updateConfig]);
 
   // Progress tracking for "continue where you left off"
   const {
@@ -56,12 +70,21 @@ export default function HomePage() {
 
   // Handle saving API key
   const handleSaveLlmConfig = useCallback(async (newConfig: Parameters<typeof updateConfig>[0]) => {
-    await updateConfig(newConfig);
+    const gatedConfig = !canUseByok && newConfig.apiKey
+      ? {
+          ...newConfig,
+          apiKey: '',
+          hasConsented: false,
+          consentTimestamp: undefined,
+        }
+      : newConfig;
+
+    await updateConfig(gatedConfig);
     setShowKeyModal(false);
-    if (newConfig.apiKey && !newConfig.hasConsented) {
+    if (gatedConfig.apiKey && !gatedConfig.hasConsented) {
       setShowConsentModal(true);
     }
-  }, [updateConfig]);
+  }, [updateConfig, canUseByok]);
 
   // Handle consent
   const handleConsent = useCallback(async () => {
@@ -121,7 +144,19 @@ export default function HomePage() {
       } catch (err) {
         console.error('Error parsing file:', err);
 
-        if (err instanceof PdfParseError || err instanceof DocxParseError || err instanceof TxtParseError) {
+        const errorMessage = err instanceof Error ? err.message : '';
+        if (
+          errorMessage.includes('API version') &&
+          errorMessage.includes('Worker version')
+        ) {
+          setError(
+            'Upload failed due to a temporary PDF reader mismatch. Please refresh and try again. If it still fails, export the file again from iCloud or upload as DOCX.'
+          );
+        } else if (errorMessage.includes('Failed to fetch')) {
+          setError(
+            'Could not load the PDF parser. Please check your connection and try again.'
+          );
+        } else if (err instanceof PdfParseError || err instanceof DocxParseError || err instanceof TxtParseError) {
           setError(err.message);
         } else if (err instanceof Error) {
           setError(err.message);
@@ -151,18 +186,18 @@ export default function HomePage() {
       </div>
 
       {/* Navigation */}
-      <nav className="relative z-50 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto">
+      <nav className="relative z-50 flex items-center justify-between gap-3 px-4 sm:px-6 py-4 sm:py-5 max-w-7xl mx-auto">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <Link href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-2 sm:gap-3">
             <div className="relative">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
-                <Sparkles className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg rotate-3 hover:rotate-0 transition-transform glow-orange">
+                <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
             </div>
-            <span className="text-2xl font-black tracking-tight">
+            <span className="text-xl sm:text-2xl font-black tracking-tight">
               <span className="text-white">Jalanea</span>
               <span className="text-orange-400"> ATS</span>
             </span>
@@ -172,21 +207,21 @@ export default function HomePage() {
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-2 sm:gap-3"
+          className="flex items-center gap-1.5 sm:gap-3 shrink-0"
         >
           {/* AI Settings - unified indigo style */}
           <button
             onClick={() => setShowKeyModal(true)}
-            aria-label={hasApiKey ? 'AI settings configured' : 'Configure AI settings'}
+            aria-label={hasByokConfigured ? 'AI settings configured' : 'Configure AI settings'}
             className={`flex items-center justify-center gap-2 text-sm h-9 px-3 sm:px-4 rounded-full border transition-colors shrink-0 ${
-              hasApiKey
+              hasByokConfigured
                 ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
                 : 'text-indigo-300 hover:text-indigo-200 bg-indigo-900/30 border-indigo-500/30 hover:border-indigo-400/50'
             }`}
           >
             <Settings className="w-4 h-4" />
             <span className="font-medium hidden sm:inline">
-              {hasApiKey ? 'AI Settings ✓' : 'AI Settings'}
+              {hasByokConfigured ? 'AI Settings ✓' : 'AI Settings'}
             </span>
           </button>
           {/* Pricing link - consistent with other nav items */}
@@ -212,7 +247,7 @@ export default function HomePage() {
       </nav>
 
       {/* Main content */}
-      <main className="relative z-10 max-w-4xl mx-auto px-6 pb-24 pt-6">
+      <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 pb-20 sm:pb-24 pt-4 sm:pt-6">
         {/* Floating decorations */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {/* Clouds - animated background decoration */}
@@ -260,12 +295,12 @@ export default function HomePage() {
         </div>
 
         {/* Header */}
-        <div className="text-center mb-12 relative">
+        <div className="text-center mb-8 sm:mb-12 relative">
           {/* PDF & DOCX Support badge */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="inline-flex items-center gap-2 rounded-full border-2 border-cyan-500/40 bg-cyan-500/10 px-5 py-2 text-sm font-bold text-cyan-300 mb-6 backdrop-blur-sm"
+            className="inline-flex items-center gap-2 rounded-full border-2 border-cyan-500/40 bg-cyan-500/10 px-4 sm:px-5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold text-cyan-300 mb-4 sm:mb-6 backdrop-blur-sm"
           >
             <FileText className="w-4 h-4" />
             <span>PDF & DOCX Support</span>
@@ -275,7 +310,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1] mb-6"
+            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1] mb-4 sm:mb-6"
           >
             <span className="text-white text-glow">Will your resume</span>{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-pink-500 to-cyan-400">
@@ -287,7 +322,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-lg text-indigo-300 max-w-xl mx-auto"
+            className="text-base sm:text-lg text-indigo-300 max-w-xl mx-auto"
           >
             See exactly how ATS software reads your resume. All processing happens{' '}
             <span className="text-orange-400 font-medium">locally in your browser</span>.
@@ -297,17 +332,17 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="flex flex-wrap items-center justify-center gap-2 mt-5"
+            className="flex flex-wrap items-center justify-center gap-2 mt-4 sm:mt-5"
           >
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/20 border border-orange-500/30 text-orange-300 text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-200 text-xs font-medium">
               <Lock className="w-3 h-3" />
               Private
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-500/20 border border-pink-500/30 text-pink-300 text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-pink-500/10 text-pink-200 text-xs font-medium">
               <Zap className="w-3 h-3" />
               Fast
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-200 text-xs font-medium">
               <Gift className="w-3 h-3" />
               3 free/day
             </span>
@@ -326,12 +361,46 @@ export default function HomePage() {
           />
         )}
 
+        {/* Tips for best results */}
+        <motion.details
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="mb-6 bg-orange-500/10 border border-orange-500/25 rounded-2xl overflow-hidden"
+        >
+          <summary className="list-none cursor-pointer px-4 sm:px-5 py-3 flex items-center justify-between text-sm font-semibold text-orange-300">
+            <span className="inline-flex items-center gap-2">
+              <Lightbulb className="w-4 h-4" />
+              Tips for best results
+            </span>
+            <span className="text-orange-200/80 text-xs">Optional</span>
+          </summary>
+          <ul className="px-4 sm:px-5 pb-4 text-sm text-orange-200/80 space-y-2">
+            <li className="flex items-start gap-2">
+              <span className="text-orange-400">•</span>
+              Use a single-column layout for best parsing compatibility
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-orange-400">•</span>
+              Avoid tables, text boxes, and graphics with embedded text
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-orange-400">•</span>
+              Save as PDF from the original document (not a scanned image)
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-orange-400">•</span>
+              Keep contact information in the main body, not just the header
+            </li>
+          </ul>
+        </motion.details>
+
         {/* Upload Card */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, type: "spring", stiffness: 100 }}
-          className="glass-card rounded-3xl p-2 mb-12 relative"
+          className="glass-card rounded-3xl p-2 mb-8 sm:mb-12 relative"
         >
           <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 md:p-8">
             <UploadDropzone
@@ -371,54 +440,23 @@ export default function HomePage() {
           className="mb-12"
         >
           <h2 className="text-xl font-bold text-white mb-5 text-center">How it works</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
+          <div className="flex md:grid md:grid-cols-3 gap-3 overflow-x-auto md:overflow-visible snap-x pb-1 md:pb-0">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-4 text-center min-w-[260px] snap-start">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">1</div>
               <h3 className="text-base font-bold text-white mb-1">Upload your resume</h3>
               <p className="text-sm text-indigo-300">PDF, DOCX, or TXT. Everything stays in your browser.</p>
             </div>
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-4 text-center min-w-[260px] snap-start">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">2</div>
               <h3 className="text-base font-bold text-white mb-1">See what bots see</h3>
               <p className="text-sm text-indigo-300">View the plain text that ATS software extracts.</p>
             </div>
-            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-5 text-center">
+            <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-4 text-center min-w-[260px] snap-start">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">3</div>
               <h3 className="text-base font-bold text-white mb-1">Fix issues</h3>
               <p className="text-sm text-indigo-300">Get tips to improve formatting and keywords.</p>
             </div>
           </div>
-        </motion.div>
-
-        {/* Tips section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-5"
-        >
-          <h3 className="text-base font-bold text-orange-400 mb-3 flex items-center gap-2">
-            <Lightbulb className="w-4 h-4" />
-            Tips for best results
-          </h3>
-          <ul className="text-sm text-orange-200/80 space-y-2">
-            <li className="flex items-start gap-2">
-              <span className="text-orange-400">•</span>
-              Use a single-column layout for best parsing compatibility
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-orange-400">•</span>
-              Avoid tables, text boxes, and graphics with embedded text
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-orange-400">•</span>
-              Save as PDF from the original document (not a scanned image)
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-orange-400">•</span>
-              Keep contact information in the main body, not just the header
-            </li>
-          </ul>
         </motion.div>
 
         {/* Footer */}
@@ -451,6 +489,9 @@ export default function HomePage() {
         onClose={() => setShowKeyModal(false)}
         onSave={handleSaveLlmConfig}
         currentConfig={llmConfig || undefined}
+        isAuthenticated={!!user}
+        hasActiveSubscription={hasAccess}
+        isAuthLoading={isAuthLoading}
       />
 
       {/* Consent Modal */}

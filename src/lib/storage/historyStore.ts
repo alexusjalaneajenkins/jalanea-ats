@@ -13,6 +13,7 @@ import {
   HistoryExport,
   ScoreSnapshot,
   JobMetadata,
+  TargetingHistorySummary,
   generateResumeHash,
 } from '../types/history';
 import { AnalysisSession } from '../types/session';
@@ -283,12 +284,22 @@ function getStore(): IndexedDBHistoryStore | InMemoryHistoryStore {
 export function createHistoryEntry(
   session: AnalysisSession,
   scores: ScoreSnapshot,
-  job?: JobMetadata
+  job?: JobMetadata,
+  existingId?: string
 ): HistoryEntry {
   const resumeHash = generateResumeHash(session.resume.extractedText);
+  const targeting: TargetingHistorySummary | undefined = session.targeting
+    ? {
+        targetTitle: session.targeting.parsedJobData.titleHint || undefined,
+        targetCompany: session.targeting.parsedJobData.companyHint || undefined,
+        focusAreas: session.targeting.tailoredDraft.focusAreas.slice(0, 3),
+        iterationCount: session.targeting.iterationHistory.length,
+        readiness: session.targeting.atsReview.readiness,
+      }
+    : undefined;
 
   return {
-    id: `history-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    id: existingId || `history-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     timestamp: new Date().toISOString(),
     resumeFileName: session.resume.fileName,
     resumeFileSize: session.resume.fileSizeBytes,
@@ -296,6 +307,7 @@ export function createHistoryEntry(
     resumeHash,
     scores,
     job,
+    targeting,
     sessionId: session.id,
   };
 }
@@ -433,6 +445,20 @@ export const historyStore = {
     job?: JobMetadata
   ): Promise<HistoryEntry> => {
     const entry = createHistoryEntry(session, scores, job);
+    await getStore().save(entry);
+    return entry;
+  },
+
+  /**
+   * Creates or updates the single history entry for a session.
+   */
+  upsertFromSession: async (
+    session: AnalysisSession,
+    scores: ScoreSnapshot,
+    job?: JobMetadata
+  ): Promise<HistoryEntry> => {
+    const existing = await historyStore.getBySessionId(session.id);
+    const entry = createHistoryEntry(session, scores, job, existing?.id);
     await getStore().save(entry);
     return entry;
   },

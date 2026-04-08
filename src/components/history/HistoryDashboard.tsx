@@ -143,15 +143,15 @@ export function HistoryDashboard({ onClose, compact = false }: HistoryDashboardP
           <button
             onClick={handleExport}
             disabled={entries.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-300 hover:text-indigo-200 hover:bg-indigo-800/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-indigo-300 hover:text-indigo-200 hover:bg-indigo-800/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="w-4 h-4" />
-            <span>Export</span>
+            <span>Export History</span>
           </button>
 
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-300 hover:text-indigo-200 hover:bg-indigo-800/50 rounded-lg transition-colors cursor-pointer">
+          <label className="flex items-center gap-1.5 px-3 py-2 text-sm text-indigo-300 hover:text-indigo-200 hover:bg-indigo-800/50 rounded-lg transition-colors cursor-pointer">
             <Upload className="w-4 h-4" />
-            <span>Import</span>
+            <span>Import History</span>
             <input
               type="file"
               accept=".json"

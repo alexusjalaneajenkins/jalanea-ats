@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Target, ClipboardPaste, Link2, Bot, Search, X, Key, Zap, Clock } from 'lucide-react';
+import { Link2, Bot, Search, X, Key, Zap, Clock } from 'lucide-react';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import type { FreeTierStatus } from '@/hooks/useFreeTier';
 import Link from 'next/link';
@@ -43,14 +42,14 @@ interface JobDescriptionInputProps {
   isLoading: boolean;
   /** Whether the resume has been uploaded */
   hasResume: boolean;
-  /** Parse health score (optional, for contextual messaging) */
-  parseScore?: number;
   /** Whether the API key is configured for AI features */
   hasApiKey?: boolean;
   /** Callback to open the API key settings modal */
   onOpenApiKeyModal?: () => void;
   /** Free tier status (optional) */
   freeTierStatus?: FreeTierStatus | null;
+  /** Whether free tier status is loading */
+  freeTierLoading?: boolean;
 }
 
 /**
@@ -67,13 +66,12 @@ export function JobDescriptionInput({
   onAnalyze,
   isLoading,
   hasResume,
-  parseScore,
   hasApiKey = false,
   onOpenApiKeyModal,
   freeTierStatus,
+  freeTierLoading = false,
 }: JobDescriptionInputProps) {
   const [isFocused, setIsFocused] = useState(false);
-  const [showTextarea, setShowTextarea] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [localUrl, setLocalUrl] = useState(jobUrl);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -95,17 +93,6 @@ export function JobDescriptionInput({
     onJobUrlChange?.(url);
   }, [onJobUrlChange]);
 
-  const showEmptyState = hasResume && jobText.length === 0 && !showTextarea;
-  const demoAvailable = !!(freeTierStatus?.enabled && (freeTierStatus.remaining ?? 0) > 0);
-  const demoRemaining = freeTierStatus?.remaining ?? null;
-
-  // Auto-focus textarea when shown
-  useEffect(() => {
-    if (showTextarea && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [showTextarea]);
-
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       onJobTextChange(e.target.value);
@@ -113,14 +100,18 @@ export function JobDescriptionInput({
     [onJobTextChange]
   );
 
-  const handleAnalyze = useCallback(async () => {
-    if (canAnalyze) {
-      await onAnalyze();
-    }
-  }, [onAnalyze]);
-
   const charCount = jobText.length;
   const canAnalyze = hasResume && charCount > 50 && !isLoading;
+  const freeTierKnown = !freeTierLoading && freeTierStatus !== null;
+  const freeTierEnabled = freeTierStatus?.enabled ?? false;
+  const freeTierDailyLimit = freeTierStatus?.dailyLimit ?? 3;
+  const demoRemaining = freeTierStatus?.remaining ?? null;
+  const demoAvailable = !!(freeTierEnabled && (demoRemaining ?? 0) > 0);
+  const freeTierExhausted = freeTierKnown && freeTierEnabled && !demoAvailable;
+
+  const handleAnalyze = useCallback(async () => {
+    await onAnalyze();
+  }, [onAnalyze]);
 
   // Sample JD for demo
   const loadSampleJD = () => {
@@ -202,7 +193,7 @@ Benefits:
               ) : (
                 <>
                   <Link2 className="w-3 h-3" />
-                  <span>Detect ATS</span>
+                  <span>Job link (optional)</span>
                 </>
               )}
             </button>
@@ -310,115 +301,68 @@ Benefits:
         )}
       </div>
 
-      {/* Empty State or Textarea */}
-      {showEmptyState ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="relative p-8 bg-indigo-950/30"
-        >
-          <div className="flex flex-col items-center text-center">
-            {/* Icon with pulse effect */}
-            <motion.div
-              className="relative mb-4"
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+      <div className="relative">
+        <textarea
+          ref={textareaRef}
+          id="job-description-textarea"
+          value={jobText}
+          onChange={handleChange}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          placeholder="Paste the full job description here, including requirements section..."
+          className={`
+            w-full min-h-[140px] sm:min-h-[180px] md:min-h-[200px] p-3 sm:p-4 text-sm text-indigo-100
+            placeholder-indigo-500 resize-y
+            border-0 focus:ring-0 focus:outline-none
+            bg-indigo-950/30
+            ${isFocused ? 'bg-indigo-950/50' : ''}
+            transition-colors duration-200
+          `}
+          aria-label="Job description text"
+        />
+
+        {/* Character count */}
+        <div className="absolute bottom-2 right-2 text-xs text-indigo-500">
+          {charCount.toLocaleString()} characters
+        </div>
+      </div>
+
+      <div className="px-3 sm:px-5 py-3 border-t border-indigo-500/20 bg-indigo-950/20">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-xs text-indigo-300">
+            Need a job post? Copy one from LinkedIn, Indeed, or a company careers page.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href="https://www.linkedin.com/jobs/search/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 text-xs font-medium transition-colors"
             >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-pink-500/20 border-2 border-orange-500/30 flex items-center justify-center">
-                <Target className="w-8 h-8 text-orange-400" />
-              </div>
-              {/* Pulse ring */}
-              <motion.div
-                className="absolute inset-0 rounded-2xl border-2 border-orange-400/50"
-                animate={{ scale: [1, 1.3], opacity: [0.5, 0] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              />
-            </motion.div>
-
-            {/* Message based on score */}
-            <h4 className="text-lg font-bold text-white mb-2">
-              {parseScore && parseScore >= 80
-                ? "Your resume is ATS-ready!"
-                : "Check your job match"}
-            </h4>
-            <p className="text-sm text-indigo-300 max-w-sm mb-5">
-              {parseScore && parseScore >= 80
-                ? "Now paste a job description to see if your keywords align with what recruiters are looking for."
-                : "Paste a job description to analyze how well your resume matches the position."}
-            </p>
-
-            {/* Prominent paste button */}
-            <motion.button
-              onClick={async () => {
-                // Try to read from clipboard, fallback to showing textarea
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (text && text.trim().length > 0) {
-                    onJobTextChange(text);
-                  } else {
-                    // No clipboard content, show textarea
-                    setShowTextarea(true);
-                  }
-                } catch {
-                  // Clipboard API not available or denied, show textarea
-                  setShowTextarea(true);
-                }
-              }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold shadow-lg hover:shadow-orange-500/25 transition-shadow"
+              LinkedIn Jobs
+            </a>
+            <a
+              href="https://www.indeed.com/jobs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 text-xs font-medium transition-colors"
             >
-              <ClipboardPaste className="w-4 h-4" />
-              Paste Job Description
-            </motion.button>
-
-            <button
-              onClick={() => setShowTextarea(true)}
-              className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
-            >
-              or type/paste manually
-            </button>
-
+              Indeed Jobs
+            </a>
             <button
               onClick={loadSampleJD}
-              className="mt-1 text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+              className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 text-xs font-medium transition-colors"
             >
-              or try a sample job posting
+              Use sample
             </button>
           </div>
-        </motion.div>
-      ) : (
-        <div className="relative">
-          <textarea
-            ref={textareaRef}
-            id="job-description-textarea"
-            value={jobText}
-            onChange={handleChange}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            placeholder="Paste the full job description here, including requirements section..."
-            className={`
-              w-full min-h-[140px] sm:min-h-[180px] md:min-h-[200px] p-3 sm:p-4 text-sm text-indigo-100
-              placeholder-indigo-500 resize-y
-              border-0 focus:ring-0 focus:outline-none
-              bg-indigo-950/30
-              ${isFocused ? 'bg-indigo-950/50' : ''}
-              transition-colors duration-200
-            `}
-            aria-label="Job description text"
-          />
-
-          {/* Character count */}
-          <div className="absolute bottom-2 right-2 text-xs text-indigo-500">
-            {charCount.toLocaleString()} characters
-          </div>
         </div>
-      )}
+      </div>
 
       {/* Footer with analyze button */}
       <div className="px-5 py-4 border-t border-indigo-500/20">
         {/* Free tier status - prominent display */}
-        {freeTierStatus?.enabled && charCount > 50 && (
+        {freeTierEnabled && charCount > 50 && (
           <div className={`mb-3 p-3 rounded-xl border ${
             demoAvailable
               ? 'bg-emerald-900/30 border-emerald-500/30'
@@ -429,12 +373,12 @@ Benefits:
                 <Zap className={`w-4 h-4 ${demoAvailable ? 'text-emerald-400' : 'text-amber-400'}`} />
                 <span className={`text-sm font-medium ${demoAvailable ? 'text-emerald-300' : 'text-amber-300'}`}>
                   {demoAvailable
-                    ? `${demoRemaining} of 3 free analyses remaining`
-                    : 'Daily limit reached (0 of 3)'
+                    ? `${demoRemaining} of ${freeTierDailyLimit} free analyses remaining`
+                    : `Daily limit reached (0 of ${freeTierDailyLimit})`
                   }
                 </span>
               </div>
-              {freeTierStatus.resetAt && (
+              {freeTierStatus?.resetAt && (
                 <div className="flex items-center gap-1.5 text-xs text-indigo-300">
                   <Clock className="w-3.5 h-3.5" />
                   <span>Resets in {formatTimeUntilReset(freeTierStatus.resetAt)}</span>
@@ -449,7 +393,7 @@ Benefits:
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-lg transition-colors"
                   >
                     <Key className="w-3.5 h-3.5" />
-                    Add Gemini Key
+                    Optional: Add Gemini Key
                   </button>
                 )}
                 <Link
@@ -471,7 +415,9 @@ Benefits:
               </span>
             ) : charCount < 50 ? (
               <span className="text-indigo-400">Paste at least 50 characters to analyze</span>
-            ) : !demoAvailable && !hasApiKey ? (
+            ) : freeTierLoading && !hasApiKey ? (
+              <span className="text-indigo-400">Checking free analyses...</span>
+            ) : freeTierExhausted && !hasApiKey ? (
               <span className="text-amber-400">
                 Add API key or wait for reset to analyze
               </span>
@@ -484,12 +430,12 @@ Benefits:
 
           <button
             onClick={handleAnalyze}
-            disabled={!canAnalyze || (!demoAvailable && !hasApiKey)}
+            disabled={!canAnalyze || (freeTierExhausted && !hasApiKey)}
             className={`
               px-5 py-2.5 text-sm font-bold rounded-xl
               transition-all duration-200
               ${
-                canAnalyze && (demoAvailable || hasApiKey)
+                canAnalyze && (!freeTierExhausted || hasApiKey)
                   ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white hover:opacity-90 shadow-lg'
                   : 'bg-indigo-800/50 text-indigo-500 cursor-not-allowed border border-indigo-700/50'
               }

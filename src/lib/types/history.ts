@@ -29,6 +29,17 @@ export interface JobMetadata {
 }
 
 /**
+ * Targeted resume workflow summary for history views.
+ */
+export interface TargetingHistorySummary {
+  targetTitle?: string;
+  targetCompany?: string;
+  focusAreas: string[];
+  iterationCount: number;
+  readiness?: 'ready' | 'needs-work' | 'risky';
+}
+
+/**
  * Analysis history entry
  *
  * A summarized record of an analysis session.
@@ -48,6 +59,9 @@ export interface HistoryEntry {
 
   // Job description info (if provided)
   job?: JobMetadata;
+
+  // Guided targeting workflow summary (if used)
+  targeting?: TargetingHistorySummary;
 
   // Session ID for linking back to full analysis
   sessionId: string;

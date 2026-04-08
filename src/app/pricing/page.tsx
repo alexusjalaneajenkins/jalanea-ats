@@ -80,6 +80,10 @@ function PricingContent() {
     'Export analysis reports',
   ];
 
+  const scrollToPlan = useCallback((planId: string) => {
+    document.getElementById(planId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   return (
     <>
       {/* Header */}
@@ -149,30 +153,90 @@ function PricingContent() {
         transition={{ delay: 0.15 }}
         className="grid grid-cols-3 gap-3 max-w-3xl mx-auto mb-10"
       >
-        <div className="bg-indigo-900/30 rounded-xl border border-indigo-500/20 p-4 text-center">
+        <button
+          type="button"
+          onClick={() => scrollToPlan('free-plan')}
+          className="bg-indigo-900/30 rounded-xl border border-indigo-500/20 p-4 text-center hover:border-indigo-400/40 transition-colors"
+        >
           <Gift className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
           <h3 className="text-sm font-bold text-white mb-1">Free</h3>
           <p className="text-xs text-indigo-300">3 AI analyses/day</p>
           <p className="text-xs text-indigo-400 mt-1">No account needed</p>
-        </div>
-        <div className="bg-indigo-900/30 rounded-xl border border-indigo-500/20 p-4 text-center">
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollToPlan('monthly-plan')}
+          className="bg-indigo-900/30 rounded-xl border border-indigo-500/20 p-4 text-center hover:border-indigo-400/40 transition-colors"
+        >
           <Zap className="w-6 h-6 text-indigo-400 mx-auto mb-2" />
           <h3 className="text-sm font-bold text-white mb-1">Monthly</h3>
           <p className="text-xs text-indigo-300">Unlimited, cancel anytime</p>
           <p className="text-xs text-indigo-400 mt-1">$5/month</p>
-        </div>
-        <div className="bg-indigo-900/30 rounded-xl border border-orange-500/30 p-4 text-center">
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollToPlan('lifetime-plan')}
+          className="bg-indigo-900/30 rounded-xl border border-orange-500/30 p-4 text-center hover:border-orange-400/50 transition-colors"
+        >
           <Crown className="w-6 h-6 text-orange-400 mx-auto mb-2" />
           <h3 className="text-sm font-bold text-white mb-1">Lifetime</h3>
           <p className="text-xs text-indigo-300">Pay once, own forever</p>
           <p className="text-xs text-indigo-400 mt-1">$15 one-time</p>
-        </div>
+        </button>
       </motion.div>
 
       {/* Pricing cards */}
-      <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+      <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        {/* Free */}
+        <motion.div
+          id="free-plan"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18 }}
+          className="glass-card rounded-3xl p-2"
+        >
+          <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 rounded-2xl p-6 h-full flex flex-col">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                <Gift className="w-5 h-5 text-emerald-400" />
+              </div>
+              <h2 className="text-xl font-bold text-white">Free</h2>
+            </div>
+
+            <div className="mb-6">
+              <span className="text-4xl font-black text-white">$0</span>
+              <span className="text-indigo-300"> forever</span>
+              <p className="text-sm text-emerald-400 mt-1">No account required</p>
+            </div>
+
+            <ul className="space-y-3 mb-8 flex-1">
+              <li className="flex items-center gap-2 text-sm text-indigo-200">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>3 AI analyses per day</span>
+              </li>
+              <li className="flex items-center gap-2 text-sm text-indigo-200">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Resume parsing and ATS checks</span>
+              </li>
+              <li className="flex items-center gap-2 text-sm text-indigo-200">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>No sign-up needed to start</span>
+              </li>
+            </ul>
+
+            <Link
+              href="/"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors font-bold"
+            >
+              <span>Try free now</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </motion.div>
+
         {/* Monthly */}
         <motion.div
+          id="monthly-plan"
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -203,7 +267,7 @@ function PricingContent() {
             <button
               onClick={() => handleCheckout('monthly')}
               disabled={loadingPlan !== null || hasAccess || isLoading}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-indigo-400/40 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loadingPlan === 'monthly' ? (
                 <span>Loading...</span>
@@ -221,6 +285,7 @@ function PricingContent() {
 
         {/* Lifetime */}
         <motion.div
+          id="lifetime-plan"
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
@@ -248,7 +313,11 @@ function PricingContent() {
             </div>
 
             <ul className="space-y-3 mb-8 flex-1">
-              {features.map((feature) => (
+              <li className="flex items-center gap-2 text-sm text-indigo-200 font-medium">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Everything in Monthly, plus:</span>
+              </li>
+              {features.slice(0, 2).map((feature) => (
                 <li key={feature} className="flex items-center gap-2 text-sm text-indigo-200">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>{feature}</span>
@@ -257,6 +326,10 @@ function PricingContent() {
               <li className="flex items-center gap-2 text-sm text-orange-300 font-medium">
                 <Check className="w-4 h-4 text-orange-400 shrink-0" />
                 <span>All future updates included</span>
+              </li>
+              <li className="flex items-center gap-2 text-sm text-orange-300 font-medium">
+                <Check className="w-4 h-4 text-orange-400 shrink-0" />
+                <span>No recurring charges</span>
               </li>
             </ul>
 
@@ -280,16 +353,6 @@ function PricingContent() {
         </motion.div>
       </div>
 
-      {/* Free tier note */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="text-center text-sm text-indigo-400 mt-8"
-      >
-        Try 3 free analyses daily — no account needed.
-      </motion.p>
-
       {/* Footer */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -299,9 +362,9 @@ function PricingContent() {
       >
         <Link
           href="/"
-          className="px-5 py-2 rounded-xl bg-indigo-600/30 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-600/50 hover:text-white transition-all text-sm font-medium"
+          className="px-5 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white hover:opacity-90 transition-all text-sm font-medium"
         >
-          Back to home
+          Try 3 free analyses
         </Link>
         {user && (
           <Link

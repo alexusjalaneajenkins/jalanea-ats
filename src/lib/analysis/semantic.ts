@@ -627,19 +627,19 @@ async function getAIAnalysis(
   try {
     geminiProvider.setApiKey(config.apiKey);
 
-    const prompt = `Analyze this resume against the job description. Respond with JSON only:
+    const prompt = `Analyze this resume against the job description. Respond with valid JSON only (no markdown, no commentary):
 {
-  "strengths": ["3-5 specific strengths"],
-  "gaps": ["2-4 specific gaps or missing qualifications"],
-  "recommendations": ["2-3 actionable recommendations"],
-  "summary": "2-3 sentence overall assessment"
+  "strengths": ["3-4 concise strengths (max 160 chars each)"],
+  "gaps": ["2-3 concise gaps (max 160 chars each)"],
+  "recommendations": ["2-3 actionable recommendations (max 160 chars each)"],
+  "summary": "1-2 sentence overall assessment (max 240 chars)"
 }
 
 RESUME:
-${resumeText.slice(0, 3000)}
+${resumeText.slice(0, 2600)}
 
 JOB DESCRIPTION:
-${jobDescription.slice(0, 2000)}`;
+${jobDescription.slice(0, 1800)}`;
 
     // Use the model selected in config, default to gemini-2.5-flash
     const modelId = config.geminiModel || 'gemini-2.5-flash';
@@ -650,7 +650,7 @@ ${jobDescription.slice(0, 2000)}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' },
         }),
       }
     );
@@ -706,29 +706,25 @@ ${jobDescription.slice(0, 2000)}`;
     }
 
     const data = await response.json();
-    console.log('[AI Analysis] Raw response:', JSON.stringify(data, null, 2));
-    const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    console.log('[AI Analysis] Text content:', textContent);
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const textContent = candidate?.content?.parts
+      ?.map((part: { text?: string }) => part.text || '')
+      .join('\n')
+      .trim();
 
     if (!textContent) {
       console.log('[AI Analysis] No text content found');
       return defaultAnalysis;
     }
 
-    // With responseMimeType: 'application/json', try direct parse first
-    let parsed;
-    try {
-      parsed = JSON.parse(textContent);
-      console.log('[AI Analysis] Direct JSON parse succeeded');
-    } catch {
-      // Fall back to extracting JSON from response
-      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.log('[AI Analysis] No JSON found in response');
-        return defaultAnalysis;
-      }
-      parsed = JSON.parse(jsonMatch[0]);
-      console.log('[AI Analysis] Regex JSON extraction succeeded');
+    const parsed = parseAIAnalysisJson(textContent, finishReason === 'MAX_TOKENS');
+    if (!parsed) {
+      console.warn('[AI Analysis] Could not parse model response', {
+        finishReason,
+        preview: textContent.slice(0, 180),
+      });
+      return defaultAnalysis;
     }
 
     return {
@@ -749,6 +745,154 @@ ${jobDescription.slice(0, 2000)}`;
     }
 
     return errorAnalysis;
+  }
+}
+
+interface ParsedAIAnalysisJson {
+  strengths?: unknown;
+  gaps?: unknown;
+  recommendations?: unknown;
+  summary?: unknown;
+}
+
+function parseAIAnalysisJson(text: string, allowRepair: boolean): ParsedAIAnalysisJson | null {
+  const cleaned = stripJsonCodeFence(text);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Continue to fallback parsing
+  }
+
+  const extracted = extractFirstJsonObject(cleaned);
+  if (extracted) {
+    try {
+      return JSON.parse(extracted);
+    } catch {
+      // Continue to repair path
+    }
+  }
+
+  if (!allowRepair) {
+    return null;
+  }
+
+  const repaired = repairTruncatedAIAnalysisJson(cleaned);
+  if (!repaired) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return null;
+  }
+}
+
+function stripJsonCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const codeBlockMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return codeBlockMatch ? codeBlockMatch[1].trim() : trimmed;
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    if (char === '}') depth--;
+
+    if (depth === 0) {
+      return text.slice(start, i + 1);
+    }
+  }
+
+  return null;
+}
+
+function repairTruncatedAIAnalysisJson(text: string): string | null {
+  const strengths = extractArrayValues(text, 'strengths', 5);
+  const gaps = extractArrayValues(text, 'gaps', 4);
+  const recommendations = extractArrayValues(text, 'recommendations', 3);
+  const summary = extractSummaryValue(text);
+
+  if (!strengths.length && !gaps.length && !recommendations.length && !summary) {
+    return null;
+  }
+
+  return JSON.stringify({
+    strengths: strengths.length ? strengths : ['Strong relevant background'],
+    gaps: gaps.length ? gaps : ['Some requirements are not clearly demonstrated'],
+    recommendations: recommendations.length ? recommendations : ['Tailor resume bullets to match key requirements'],
+    summary: summary || 'Partial analysis generated. Refine resume details and rerun analysis.',
+  });
+}
+
+function extractArrayValues(text: string, key: string, limit: number): string[] {
+  const keyMatch = text.match(new RegExp(`"${key}"\\s*:\\s*\\[`, 'i'));
+  if (!keyMatch || typeof keyMatch.index !== 'number') {
+    return [];
+  }
+
+  const listStart = keyMatch.index + keyMatch[0].length;
+  const remainder = text.slice(listStart);
+  const listSegment = remainder.split(']')[0] || remainder;
+  const values: string[] = [];
+  const valuePattern = /"((?:\\.|[^"\\])*)"/g;
+  let match: RegExpExecArray | null = valuePattern.exec(listSegment);
+
+  while (match && values.length < limit) {
+    const rawValue = match[1];
+    try {
+      const decoded = JSON.parse(`"${rawValue}"`) as string;
+      if (decoded.trim()) values.push(decoded.trim());
+    } catch {
+      const fallback = rawValue
+        .replace(/\\"/g, '"')
+        .replace(/\\n/g, ' ')
+        .replace(/\\t/g, ' ')
+        .trim();
+      if (fallback) values.push(fallback);
+    }
+    match = valuePattern.exec(listSegment);
+  }
+
+  return values;
+}
+
+function extractSummaryValue(text: string): string | null {
+  const summaryMatch = text.match(/"summary"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  if (!summaryMatch) return null;
+
+  try {
+    const decoded = JSON.parse(`"${summaryMatch[1]}"`) as string;
+    return decoded.trim() || null;
+  } catch {
+    return summaryMatch[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').trim() || null;
   }
 }
 

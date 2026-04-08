@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { bullet, jobDescription, missingKeywords = [] } = body;
+    const { bullet, jobDescription, missingKeywords = [], gaps = [], recommendations = [] } = body;
 
     if (!bullet || bullet.trim().length < 10) {
       return NextResponse.json(
@@ -178,6 +178,12 @@ ${jobDescription.slice(0, 1000)}` : ''}
 
 ${missingKeywords.length > 0 ? `KEYWORDS TO INCORPORATE (if relevant):
 ${missingKeywords.slice(0, 10).join(', ')}` : ''}
+
+${Array.isArray(gaps) && gaps.length > 0 ? `KNOWN GAPS TO ADDRESS (if truthful):
+${gaps.slice(0, 5).join('; ')}` : ''}
+
+${Array.isArray(recommendations) && recommendations.length > 0 ? `RESUME IMPROVEMENT PRIORITIES:
+${recommendations.slice(0, 5).join('; ')}` : ''}
 
 Generate exactly 3 variations:
 

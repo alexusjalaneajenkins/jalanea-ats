@@ -15,6 +15,7 @@ import {
   Bot,
   Search,
   Briefcase,
+  Sparkles,
 } from 'lucide-react';
 import { HistoryEntry, ResumeGroup } from '@/lib/types/history';
 
@@ -105,6 +106,29 @@ export function HistoryEntryCard({
                   <Bot className="w-3 h-3" />
                 ) : (
                   <Search className="w-3 h-3" />
+                )}
+              </div>
+            )}
+
+            {entry.targeting && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-500/15 px-2 py-0.5 text-xs text-fuchsia-200">
+                  <Sparkles className="h-3 w-3" />
+                  {entry.targeting.iterationCount} targeted draft{entry.targeting.iterationCount === 1 ? '' : 's'}
+                </span>
+                {entry.targeting.readiness && (
+                  <span className="rounded-full bg-indigo-800/70 px-2 py-0.5 text-xs text-indigo-200">
+                    {entry.targeting.readiness === 'ready'
+                      ? 'Target ready'
+                      : entry.targeting.readiness === 'needs-work'
+                        ? 'Needs revision'
+                        : 'Risky target'}
+                  </span>
+                )}
+                {entry.targeting.focusAreas[0] && (
+                  <span className="text-xs text-indigo-400 truncate max-w-[220px]">
+                    Focus: {entry.targeting.focusAreas[0]}
+                  </span>
                 )}
               </div>
             )}

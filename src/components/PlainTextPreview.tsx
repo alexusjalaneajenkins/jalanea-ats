@@ -121,14 +121,14 @@ export function PlainTextPreview({
             </p>
           </div>
         ) : (
-          <pre className="p-4 text-sm text-indigo-100 font-mono whitespace-pre-wrap break-words leading-relaxed">
+          <pre className="p-4 text-sm text-indigo-100 font-mono whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] leading-relaxed">
             {text}
           </pre>
         )}
       </div>
 
       {/* Footer with stats */}
-      <div className="flex items-center justify-between px-5 py-3 border-t border-indigo-500/20">
+      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-t border-indigo-500/20 bg-indigo-950/20">
         <div className="flex gap-4 text-xs text-indigo-400">
           <span>{charCount.toLocaleString()} characters</span>
           <span>{wordCount.toLocaleString()} words</span>

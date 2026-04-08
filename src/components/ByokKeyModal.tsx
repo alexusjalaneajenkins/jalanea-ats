@@ -30,6 +30,7 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from '@/lib/llm/types';
 import { geminiProvider } from '@/lib/llm/gemini';
+import Link from 'next/link';
 
 // ============================================================================
 // Types
@@ -40,6 +41,9 @@ interface ByokKeyModalProps {
   onClose: () => void;
   onSave: (config: LlmConfig) => void;
   currentConfig?: LlmConfig;
+  isAuthenticated: boolean;
+  hasActiveSubscription: boolean;
+  isAuthLoading?: boolean;
 }
 
 const GEMINI_KEY_URL = 'https://aistudio.google.com/apikey';
@@ -54,6 +58,9 @@ export function ByokKeyModal({
   onClose,
   onSave,
   currentConfig,
+  isAuthenticated,
+  hasActiveSubscription,
+  isAuthLoading = false,
 }: ByokKeyModalProps) {
   // State
   const provider: LlmConfig['provider'] = 'gemini';
@@ -72,11 +79,20 @@ export function ByokKeyModal({
   const [keyMode, setKeyMode] = useState<'demo' | 'byok'>(
     currentConfig?.apiKey ? 'byok' : 'demo'
   );
+  const canUseByok = !isAuthLoading && isAuthenticated && hasActiveSubscription;
 
   // Reset validation when key or model changes
   useEffect(() => {
     setValidationResult(null);
   }, [apiKey, geminiModel]);
+
+  // Enforce hard gate: if BYOK access is lost, force demo mode.
+  useEffect(() => {
+    if (!isAuthLoading && !canUseByok && keyMode === 'byok') {
+      setKeyMode('demo');
+      setValidationResult(null);
+    }
+  }, [isAuthLoading, canUseByok, keyMode]);
 
   // Update gemini provider model when selection changes
   useEffect(() => {
@@ -102,6 +118,8 @@ export function ByokKeyModal({
 
   // Handle save
   const handleSave = () => {
+    if (keyMode === 'byok' && !canUseByok) return;
+
     const config: LlmConfig = {
       provider,
       geminiModel,
@@ -171,7 +189,7 @@ export function ByokKeyModal({
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Gemini Key
+              Gemini Key (Optional)
             </button>
             <button
               onClick={() => setActiveTab('preferences')}
@@ -189,6 +207,16 @@ export function ByokKeyModal({
           <div className="p-6 overflow-y-auto flex-1">
             {activeTab === 'key' ? (
               <div className="space-y-6">
+                {/* Start helper */}
+                <div className="p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30">
+                  <p className="text-sm font-semibold text-cyan-300 mb-2">Where do I start?</p>
+                  <ol className="text-xs text-cyan-100/90 space-y-1">
+                    <li>1. Use Demo Mode first (3 free analyses/day).</li>
+                    <li>2. "My Own Key" is optional and for unlimited usage.</li>
+                    <li>3. Gemini keys come from Google AI Studio.</li>
+                  </ol>
+                </div>
+
                 {/* Key Mode Selection */}
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-3">
@@ -229,11 +257,12 @@ export function ByokKeyModal({
                     {/* BYOK Mode */}
                     <button
                       onClick={() => setKeyMode('byok')}
+                      disabled={!canUseByok}
                       className={`relative p-4 rounded-xl border text-left transition-all ${
                         keyMode === 'byok'
                           ? 'border-amber-500/50 bg-amber-500/10'
                           : 'border-slate-700 hover:border-slate-600 bg-slate-800/50'
-                      }`}
+                      } ${!canUseByok ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-start gap-3">
                         <div className={`p-2 rounded-lg ${keyMode === 'byok' ? 'bg-amber-500/20' : 'bg-slate-700/50'}`}>
@@ -251,13 +280,53 @@ export function ByokKeyModal({
                             )}
                           </div>
                           <p className="text-xs text-slate-400 mt-1">
-                            Unlimited analyses
+                            Unlimited analyses (subscription)
                           </p>
                         </div>
                       </div>
                     </button>
                   </div>
                 </div>
+
+                {!isAuthLoading && !canUseByok && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/30"
+                  >
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-amber-300">
+                          BYOK requires login + active subscription
+                        </p>
+                        <p className="text-xs text-amber-200/80">
+                          Demo mode remains available right now, even without an account.
+                        </p>
+                        <p className="text-xs text-amber-200/80">
+                          After subscribing, return here and switch to "My Own Key".
+                        </p>
+                        <div className="flex items-center gap-2">
+                          {!isAuthenticated ? (
+                            <Link
+                              href="/login"
+                              className="px-3 py-1.5 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg transition-colors"
+                            >
+                              Sign In
+                            </Link>
+                          ) : (
+                            <Link
+                              href="/pricing"
+                              className="px-3 py-1.5 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg transition-colors"
+                            >
+                              View Plans
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Demo Mode Info */}
                 {keyMode === 'demo' && (
@@ -338,7 +407,7 @@ export function ByokKeyModal({
                           rel="noopener noreferrer"
                           className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
                         >
-                          Get a free key
+                          Open Google AI Studio
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
@@ -365,7 +434,7 @@ export function ByokKeyModal({
                           <button
                             type="button"
                             onClick={validateKey}
-                            disabled={!apiKey.trim() || isValidating}
+                            disabled={!apiKey.trim() || isValidating || !canUseByok}
                             className="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
                             {isValidating ? (
@@ -411,8 +480,8 @@ export function ByokKeyModal({
                         Get a Gemini key in 60 seconds
                       </p>
                       <ol className="text-xs text-slate-400 space-y-1">
-                        <li>1. Open Google AI Studio and click "Get API key".</li>
-                        <li>2. Create a key in a new or existing project.</li>
+                        <li>1. Click "Open Google AI Studio".</li>
+                        <li>2. Click "Get API key" and create one.</li>
                         <li>3. Copy the key and paste it here.</li>
                       </ol>
                     </div>
@@ -472,7 +541,7 @@ export function ByokKeyModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={isValidating}
+              disabled={isValidating || (keyMode === 'byok' && !canUseByok)}
               className="px-4 py-2 text-sm font-medium bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Save Settings

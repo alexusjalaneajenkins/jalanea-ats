@@ -5,7 +5,7 @@
  * and calculates cosine similarity between vectors.
  *
  * Supports:
- * - Google Gemini embedding-001 model
+ * - Google Gemini gemini-embedding-001 model
  * - OpenAI text-embedding-3-small
  */
 
@@ -40,8 +40,9 @@ const EMBEDDING_CONFIG: Record<SupportedProvider, {
   dimensions: number;
 }> = {
   gemini: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent',
-    model: 'text-embedding-004',
+    // text-embedding-004 was retired by Gemini API in Jan 2026.
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
+    model: 'gemini-embedding-001',
     dimensions: 768,
   },
   openai: {
@@ -51,8 +52,8 @@ const EMBEDDING_CONFIG: Record<SupportedProvider, {
   },
   anthropic: {
     // Anthropic doesn't have embeddings API, use Gemini as fallback
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent',
-    model: 'text-embedding-004',
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
+    model: 'gemini-embedding-001',
     dimensions: 768,
   },
 };

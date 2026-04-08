@@ -5,6 +5,8 @@
  * for resume parsing, job description analysis, and scoring.
  */
 
+import type { TargetingArtifact } from './targeting';
+
 /**
  * The primary object representing a complete analysis session.
  * Contains all data from resume upload through scoring and export.
@@ -31,6 +33,8 @@ export type AnalysisSession = {
   byok?: ByokMetadata;
   /** History of generated exports */
   exports?: ExportArtifact[];
+  /** Guided resume targeting workflow state */
+  targeting?: TargetingArtifact;
 };
 
 /**

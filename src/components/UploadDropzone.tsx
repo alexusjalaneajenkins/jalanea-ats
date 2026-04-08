@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { Upload, CheckCircle, AlertTriangle, Loader2, Lock, Cloud, Smartphone } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, Loader2, Lock } from 'lucide-react';
 
 /**
  * Props for the UploadDropzone component.
@@ -273,17 +273,9 @@ export function UploadDropzone({
               </p>
               <p className="text-sm text-indigo-300 mt-1 hidden sm:block">or click to browse</p>
 
-              {/* Mobile view - Research shows users need guidance on cloud access */}
+              {/* Mobile view */}
               <p className="text-lg font-bold text-white sm:hidden">
                 Tap to upload your resume
-              </p>
-              <div className="sm:hidden mt-2 flex items-center justify-center gap-2 text-sm text-indigo-300">
-                <Cloud className="w-4 h-4" />
-                <span>From Device, Google Drive, or Dropbox</span>
-              </div>
-              <p className="text-xs text-indigo-400/80 mt-2 sm:hidden flex items-center justify-center gap-1">
-                <Smartphone className="w-3 h-3" />
-                <span>Tap "Browse" to access cloud storage</span>
               </p>
 
               <p className="text-xs text-indigo-400 mt-3">

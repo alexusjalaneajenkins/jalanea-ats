@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { isValidElement, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, ChevronDown, Mail, ArrowLeft, Search, HelpCircle, User, CreditCard, Wrench, Shield } from 'lucide-react';
 
 interface FAQItem {
   question: string;
-  answer: string;
+  answer: ReactNode;
 }
 
 interface FAQCategory {
@@ -15,6 +15,19 @@ interface FAQCategory {
   title: string;
   icon: React.ReactNode;
   items: FAQItem[];
+}
+
+function toSearchableText(value: ReactNode): string {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(toSearchableText).join(' ');
+  }
+  if (isValidElement(value)) {
+    return toSearchableText((value.props as { children?: ReactNode }).children);
+  }
+  return '';
 }
 
 const faqCategories: FAQCategory[] = [
@@ -71,7 +84,14 @@ const faqCategories: FAQCategory[] = [
     items: [
       {
         question: 'What subscription plans are available?',
-        answer: 'We offer two plans: Monthly ($5/month) for ongoing access, and Lifetime ($15 one-time) for unlimited access forever. Both include unlimited resume analyses and all AI features.',
+        answer: (
+          <>
+            We offer two plans: Monthly ($5/month) for ongoing access, and Lifetime ($15 one-time) for unlimited access forever. Both include unlimited resume analyses and all AI features. See the full breakdown on the{' '}
+            <Link href="/pricing" className="text-indigo-300 underline hover:text-indigo-200">
+              Pricing page
+            </Link>.
+          </>
+        ),
       },
       {
         question: 'How do I cancel my subscription?',
@@ -121,7 +141,14 @@ const faqCategories: FAQCategory[] = [
     items: [
       {
         question: 'Is my resume data secure?',
-        answer: 'Yes. Your resume data is encrypted in transit and at rest. We use industry-standard security practices to protect your information.',
+        answer: (
+          <>
+            Yes. Your resume data is encrypted in transit and at rest. We use industry-standard security practices to protect your information. Read full details in our{' '}
+            <Link href="/privacy" className="text-indigo-300 underline hover:text-indigo-200">
+              Privacy Policy
+            </Link>.
+          </>
+        ),
       },
       {
         question: 'Do you share my data with employers or third parties?',
@@ -177,6 +204,12 @@ export default function HelpPage() {
   const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setActiveCategory(null);
+    }
+  }, [searchQuery]);
+
   const toggleItem = (categoryId: string, index: number) => {
     const key = `${categoryId}-${index}`;
     setOpenItems(prev => ({ ...prev, [key]: !prev[key] }));
@@ -189,7 +222,7 @@ export default function HelpPage() {
         items: category.items.filter(
           item =>
             item.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.answer.toLowerCase().includes(searchQuery.toLowerCase())
+            toSearchableText(item.answer).toLowerCase().includes(searchQuery.toLowerCase())
         ),
       })).filter(category => category.items.length > 0)
     : faqCategories;
@@ -260,6 +293,11 @@ export default function HelpPage() {
               className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#1a1a2e]/90 border border-indigo-500/20 text-white placeholder-indigo-400 focus:outline-none focus:border-indigo-400 transition-colors"
             />
           </div>
+          <p className="mt-2 text-xs text-indigo-400">
+            {searchQuery.trim()
+              ? `${displayCategories.reduce((sum, cat) => sum + cat.items.length, 0)} results`
+              : 'Search updates as you type'}
+          </p>
         </motion.div>
 
         {/* Category pills */}
@@ -355,6 +393,7 @@ export default function HelpPage() {
             Contact Support
           </Link>
           <p className="text-xs text-indigo-400 mt-3">support-ats@jalanea.dev</p>
+          <p className="text-xs text-indigo-500 mt-1">We typically reply within 1-3 business days.</p>
         </motion.div>
       </div>
 

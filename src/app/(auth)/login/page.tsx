@@ -208,9 +208,9 @@ function LoginForm() {
         <div className="mt-6 flex justify-center">
           <Link
             href="/"
-            className="px-5 py-2 rounded-xl bg-indigo-600/30 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-600/50 hover:text-white transition-all text-sm font-medium"
+            className="text-sm text-indigo-300 hover:text-white transition-colors"
           >
-            Back to home
+            ← Back to home
           </Link>
         </div>
       </motion.div>

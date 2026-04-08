@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jalanea Tutor - Student Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        :root {
+            --font-outfit: 'Outfit', sans-serif;
+            --font-jakarta: 'Plus Jakarta Sans', sans-serif;
+            --bg-warm: #FDFBF7;
+            --text-main: #2D2D2D;
+            --text-muted: #5A5650;
+            --accent-sage: #5A7D71;
+            --border-soft: #E5E2DD;
+            --white: #FFFFFF;
+            --muted-300: #D1D5DB;
+            --shadow-sage: rgba(90, 125, 113, 0.10);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-jakarta);
+            color: var(--text-main);
+            background-color: var(--bg-warm);
+        }
+
+        .font-outfit { font-family: var(--font-outfit); }
+        .font-jakarta { font-family: var(--font-jakarta); }
+
+        /* Token-based utility classes (so markup doesn't use hardcoded hex) */
+        .bg-warm { background-color: var(--bg-warm); }
+        .bg-white-token { background-color: var(--white); }
+        .text-main { color: var(--text-main); }
+        .text-muted { color: var(--text-muted); }
+        .text-accent { color: var(--accent-sage); }
+        .bg-accent { background-color: var(--accent-sage); }
+        .bg-accent-hover:hover { background-color: color-mix(in srgb, var(--accent-sage) 85%, #000); }
+        .border-soft { border-color: var(--border-soft); }
+        .placeholder-muted::placeholder { color: var(--muted-300); }
+
+        /* Predictable focus states (2px, focus-visible) */
+        .focus-outline:focus-visible {
+            outline: 2px solid var(--accent-sage);
+            outline-offset: 2px;
+        }
+
+        /* Consistent transitions (0.2s ease) */
+        .t-200 {
+            transition: all 0.2s ease;
+        }
+        .t-colors-200 {
+            transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        /* Active state */
+        .btn-calm:active {
+            transform: scale(0.98);
+            transition: transform 0.2s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen flex flex-col bg-warm overflow-x-hidden font-jakarta">
+        <!-- Brand Header: Always at top -->
+        <header class="shrink-0 pt-10 md:pt-14 px-6 md:px-12 flex items-center justify-center md:justify-start">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-sm">
+                    <iconify-icon icon="lucide:leaf" class="text-white text-lg"></iconify-icon>
+                </div>
+                <span class="font-outfit text-lg font-semibold tracking-tight text-main">Jalanea Tutor</span>
+            </div>
+        </header>
+
+        <!-- Main Content: Vertically Centered Form -->
+        <main class="flex-1 w-full flex flex-col items-center justify-center px-6 py-12 md:py-20">
+            <div class="w-full md:max-w-[500px] mx-auto">
+                <h1 class="font-outfit text-3xl md:text-4xl font-semibold text-main leading-tight mb-3 tracking-tight text-center md:text-left">
+                    Hi there!<br class="hidden md:block"/>Welcome back to Jalanea.
+                </h1>
+                <p class="text-lg text-muted mb-10 md:mb-12 font-medium text-center md:text-left">
+                    Let's sign in to see what we're learning today.
+                </p>
+
+                <!-- Login Form -->
+                <form class="space-y-8" onsubmit="return false;">
+                    <div class="space-y-3">
+                        <label for="student-name" class="block text-base font-semibold text-main ml-1">
+                            What is your name?
+                        </label>
+                        <input
+                            type="text"
+                            id="student-name"
+                            placeholder="Enter your first name"
+                            class="focus-outline t-colors-200 w-full h-14 px-5 rounded-2xl border-2 border-soft bg-white-token text-lg placeholder-muted focus:border-transparent outline-none"
+                        >
+                    </div>
+
+                    <div class="space-y-3">
+                        <label for="student-pin" class="block text-base font-semibold text-main ml-1">
+                            Enter your Secret PIN
+                        </label>
+                        <div class="relative">
+                            <input
+                                type="password"
+                                id="student-pin"
+                                inputmode="numeric"
+                                pattern="[0-9]*"
+                                placeholder="4-digit number"
+                                class="focus-outline t-colors-200 w-full h-14 px-5 rounded-2xl border-2 border-soft bg-white-token text-lg tracking-[0.5em] placeholder:tracking-normal placeholder-muted focus:border-transparent outline-none"
+                            >
+                            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-muted">
+                                <iconify-icon icon="lucide:lock" class="text-xl"></iconify-icon>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-4">
+                        <button
+                            type="submit"
+                            id="cta-login-btn"
+                            class="btn-calm t-200 w-full h-14 min-h-12 bg-accent text-white rounded-2xl text-lg font-semibold shadow-sm hover:shadow-sm flex items-center justify-center gap-2 bg-accent-hover focus-outline"
+                        >
+                            Start Learning
+                            <iconify-icon icon="lucide:arrow-right" class="text-xl"></iconify-icon>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Accessibility / Help Text -->
+                <div class="mt-10 flex justify-center md:justify-start">
+                    <a href="#" id="help-link" class="t-colors-200 inline-flex items-center gap-2 text-muted hover:text-main">
+                        <iconify-icon icon="lucide:help-circle" class="text-xl"></iconify-icon>
+                        <span class="text-sm font-medium underline underline-offset-4">I need help signing in</span>
+                    </a>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer: Fixed bottom space -->
+        <footer class="shrink-0 w-full pb-10 px-6">
+            <div class="max-w-7xl mx-auto pt-6 border-t border-soft text-center">
+                <p class="text-xs text-muted opacity-60 font-medium">
+                    Designed with care for every kind of mind.
+                </p>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

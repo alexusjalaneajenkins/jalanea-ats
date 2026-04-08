@@ -20,6 +20,21 @@ export default function AccountPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const identityProviders = Array.from(
+    new Set(
+      (user?.identities || [])
+        .map((identity) => identity.provider)
+        .filter((provider): provider is string => typeof provider === 'string' && provider.length > 0)
+    )
+  );
+  const fallbackProvider = user?.app_metadata?.provider;
+  const effectiveProviders =
+    identityProviders.length > 0
+      ? identityProviders
+      : (fallbackProvider ? [fallbackProvider] : []);
+  const isGoogleOnlyUser =
+    effectiveProviders.length > 0 &&
+    effectiveProviders.every((provider) => provider === 'google');
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -55,6 +70,11 @@ export default function AccountPage() {
   };
 
   const handleEmailChange = async () => {
+    if (isGoogleOnlyUser) {
+      setActionError('Email is managed by your Google account and cannot be changed here.');
+      setShowEmailModal(false);
+      return;
+    }
     if (!newEmail || newEmail === user?.email) return;
     setActionLoading(true);
     setActionError(null);
@@ -320,13 +340,25 @@ export default function AccountPage() {
             )}
 
             {/* Change Email */}
-            <button
-              onClick={() => setShowEmailModal(true)}
-              className="w-full flex items-center gap-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 hover:bg-indigo-500/20 transition-colors"
-            >
-              <Mail className="w-4 h-4" />
-              <span className="text-sm font-medium">Change email</span>
-            </button>
+            {isGoogleOnlyUser ? (
+              <div className="w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                <div className="flex items-center gap-3 text-indigo-200">
+                  <Mail className="w-4 h-4" />
+                  <span className="text-sm font-medium">Email managed by Google</span>
+                </div>
+                <p className="text-xs text-indigo-400 mt-2 pl-7">
+                  To change your login email, update it in your Google account settings.
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowEmailModal(true)}
+                className="w-full flex items-center gap-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 hover:bg-indigo-500/20 transition-colors"
+              >
+                <Mail className="w-4 h-4" />
+                <span className="text-sm font-medium">Change email</span>
+              </button>
+            )}
 
             {/* Get Help */}
             <Link

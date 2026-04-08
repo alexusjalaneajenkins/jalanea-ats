@@ -7,8 +7,23 @@ export const metadata: Metadata = {
 };
 
 export default function TermsOfUsePage() {
+  const sections = [
+    { id: 'service-description', label: 'What Jalanea ATS Does' },
+    { id: 'free-tier', label: 'Free Tier & Demo Usage' },
+    { id: 'paid-plans', label: 'Paid Plans' },
+    { id: 'byok-mode', label: 'BYOK Mode' },
+    { id: 'user-conduct', label: 'User Conduct' },
+    { id: 'intellectual-property', label: 'Intellectual Property' },
+    { id: 'disclaimers', label: 'Disclaimers' },
+    { id: 'limitation-liability', label: 'Limitation of Liability' },
+    { id: 'changes', label: 'Changes to Terms' },
+    { id: 'contact', label: 'Contact' },
+  ];
+
+  const sectionClass = 'pt-6 border-t border-gray-800/70';
+
   return (
-    <div className="min-h-screen bg-forge-950 text-gray-100">
+    <div className="min-h-screen text-gray-100">
       {/* Header */}
       <header className="border-b border-gray-800">
         <div className="max-w-4xl mx-auto px-4 py-6">
@@ -41,8 +56,23 @@ export default function TermsOfUsePage() {
             </ul>
           </section>
 
+          <section className="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+            <h2 className="text-lg font-semibold text-white mt-0 mb-3">Table of Contents</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {sections.map((section) => (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className="text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+                >
+                  {section.label}
+                </a>
+              ))}
+            </div>
+          </section>
+
           {/* Service Description */}
-          <section>
+          <section id="service-description" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">What Jalanea ATS Does</h2>
             <p className="text-gray-300">
               Jalanea ATS (&quot;the Service&quot;) is a resume analysis tool that helps job seekers
@@ -53,7 +83,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Free Tier */}
-          <section>
+          <section id="free-tier" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Free Tier &amp; Demo Usage</h2>
             <p className="text-gray-300">
               The free tier provides up to 3 AI-powered analyses per day. This limit is tracked
@@ -75,7 +105,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Paid Plans */}
-          <section>
+          <section id="paid-plans" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Paid Plans</h2>
             <p className="text-gray-300">
               Paid plans provide unlimited AI-powered analysis without needing your own API key.
@@ -106,7 +136,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* BYOK Mode */}
-          <section>
+          <section id="byok-mode" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Bring Your Own Key (BYOK) Mode</h2>
             <p className="text-gray-300">
               BYOK mode allows you to use your own Google Gemini API key for unlimited AI
@@ -133,7 +163,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* User Conduct */}
-          <section>
+          <section id="user-conduct" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">User Conduct</h2>
             <p className="text-gray-300">When using the Service, you agree not to:</p>
             <ul className="text-gray-300 space-y-2">
@@ -146,7 +176,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Intellectual Property */}
-          <section>
+          <section id="intellectual-property" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Intellectual Property</h2>
             <ul className="text-gray-300 space-y-2">
               <li>
@@ -165,7 +195,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Disclaimers */}
-          <section>
+          <section id="disclaimers" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Disclaimers</h2>
             <div className="bg-amber-950/30 border border-amber-700/50 rounded-lg p-4 my-4">
               <p className="text-amber-200 font-medium mb-2">Important:</p>
@@ -187,7 +217,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Limitation of Liability */}
-          <section>
+          <section id="limitation-liability" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Limitation of Liability</h2>
             <p className="text-gray-300">
               To the maximum extent permitted by law, Jalanea shall not be liable for any
@@ -203,7 +233,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Changes to Terms */}
-          <section>
+          <section id="changes" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Changes to These Terms</h2>
             <p className="text-gray-300">
               We may update these terms from time to time. Changes will be posted on this page
@@ -214,7 +244,7 @@ export default function TermsOfUsePage() {
           </section>
 
           {/* Contact */}
-          <section>
+          <section id="contact" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Contact Us</h2>
             <p className="text-gray-300">
               If you have questions about these terms, please contact us at:

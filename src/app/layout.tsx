@@ -55,7 +55,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-forge-950`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
         <PWAInstall />

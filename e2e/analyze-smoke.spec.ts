@@ -33,9 +33,23 @@ test('upload + analysis flow does not hit React hook crash', async ({ page }) =>
 
   const analyzeButton = page.getByRole('button', { name: 'Analyze Job Match' });
   await expect(analyzeButton).toBeEnabled({ timeout: 10000 });
-  await analyzeButton.click();
+  const analysisResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/analyze-free') &&
+      response.request().method() === 'POST',
+    { timeout: 45000 }
+  );
 
-  await page.waitForTimeout(2500);
+  await analyzeButton.click();
+  await expect(page.getByText('Analyzing...')).toBeVisible({ timeout: 8000 });
+
+  const analysisResponse = await analysisResponsePromise;
+  expect(analysisResponse.status(), `unexpected /api/analyze-free status: ${analysisResponse.status()}`).toBeLessThan(500);
+
+  await expect(page.getByRole('heading', { name: 'AI Analysis' }).first()).toBeVisible({ timeout: 45000 });
+  await expect(page.getByText('Demo', { exact: true })).toBeVisible({ timeout: 45000 });
+  await expect(page.getByText(/free analys(es|is) remaining today/i)).toBeVisible({ timeout: 45000 });
+
   await expect(page.locator('body')).not.toContainText('Application error:');
 
   const crashErrors = runtimeErrors.filter((error) =>

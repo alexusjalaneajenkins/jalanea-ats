@@ -21,6 +21,9 @@ export interface FreeTierStatus {
 export interface FreeTierAnalysisResult {
   score: number;
   summary: string;
+  strengths: string[];
+  gaps: string[];
+  recommendations: string[];
   keywordMatches: {
     found: string[];
     missing: string[];

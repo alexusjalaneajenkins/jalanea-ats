@@ -180,9 +180,12 @@ async function loadPdfJs() {
   // Dynamic import for client-side only
   const pdfjsLib = await import('pdfjs-dist');
 
-  // Set up the worker - use local file from public folder
+  // Use a worker URL that always matches the currently loaded PDF.js version.
+  // This prevents API/Worker version mismatches after dependency updates.
   if (typeof window !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    const version = typeof pdfjsLib.version === 'string' ? pdfjsLib.version : '5.4.530';
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
   }
 
   return pdfjsLib;

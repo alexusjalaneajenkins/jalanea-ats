@@ -63,31 +63,31 @@ export function ExportButtons({
     return (
       <div className="flex items-center gap-2">
         <button
-          onClick={handleExportJSON}
-          disabled={isExportingJSON}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          title="Export as JSON (full data)"
-        >
-          {isExportingJSON ? (
-            <LoadingSpinner />
-          ) : (
-            <JSONIcon />
-          )}
-          <span>JSON</span>
-        </button>
-
-        <button
           onClick={handleExportMarkdown}
           disabled={isExportingMarkdown}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          title="Export as Markdown (readable report)"
+          title="Download a readable report"
         >
           {isExportingMarkdown ? (
             <LoadingSpinner />
           ) : (
             <MarkdownIcon />
           )}
-          <span>Markdown</span>
+          <span>Report</span>
+        </button>
+
+        <button
+          onClick={handleExportJSON}
+          disabled={isExportingJSON}
+          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Download advanced raw data"
+        >
+          {isExportingJSON ? (
+            <LoadingSpinner />
+          ) : (
+            <JSONIcon />
+          )}
+          <span>Raw Data</span>
         </button>
       </div>
     );

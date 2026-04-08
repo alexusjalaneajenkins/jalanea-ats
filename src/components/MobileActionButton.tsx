@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, ChevronUp, X } from 'lucide-react';
+import { FileText, ChevronUp } from 'lucide-react';
 
 interface MobileActionButtonProps {
   /** Target element ID to scroll to */
@@ -29,11 +29,10 @@ export function MobileActionButton({
   label = 'Add Job Description',
 }: MobileActionButtonProps) {
   const [isVisible, setIsVisible] = useState(false);
-  const [isDismissed, setIsDismissed] = useState(false);
 
   useEffect(() => {
-    // Don't show if complete or dismissed
-    if (isComplete || isDismissed) {
+    // Don't show if complete
+    if (isComplete) {
       setIsVisible(false);
       return;
     }
@@ -55,18 +54,13 @@ export function MobileActionButton({
     observer.observe(targetElement);
 
     return () => observer.disconnect();
-  }, [targetId, isComplete, isDismissed]);
+  }, [targetId, isComplete]);
 
   const handleClick = () => {
     const targetElement = document.getElementById(targetId);
     if (targetElement) {
       targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  };
-
-  const handleDismiss = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsDismissed(true);
   };
 
   return (
@@ -77,35 +71,23 @@ export function MobileActionButton({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 100, scale: 0.8 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="fixed bottom-24 left-4 right-4 z-40 lg:hidden"
+          className="fixed bottom-6 left-4 right-4 z-40 lg:hidden"
         >
-          <div className="relative">
-            {/* Main button */}
-            <button
-              onClick={handleClick}
-              className="w-full flex items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-shadow"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-bold">{label}</p>
-                  <p className="text-xs text-white/80">Tap to scroll up</p>
-                </div>
+          <button
+            onClick={handleClick}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-shadow"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                <FileText className="w-4 h-4" />
               </div>
-              <ChevronUp className="w-5 h-5" />
-            </button>
-
-            {/* Dismiss button */}
-            <button
-              onClick={handleDismiss}
-              className="absolute -top-2 -right-2 w-7 h-7 bg-indigo-900 border border-indigo-500/50 rounded-full flex items-center justify-center text-indigo-400 hover:text-white hover:bg-indigo-800 transition-colors shadow-lg"
-              aria-label="Dismiss"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+              <div className="text-left">
+                <p className="text-base font-bold leading-tight">{label}</p>
+                <p className="text-xs text-white/80 leading-tight">Tap to go to Step 2</p>
+              </div>
+            </div>
+            <ChevronUp className="w-5 h-5" />
+          </button>
         </motion.div>
       )}
     </AnimatePresence>

@@ -4,32 +4,24 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, FileText, Shield, ArrowLeft, History, X, Settings, PanelLeftClose, PanelLeft } from 'lucide-react';
-import { MobileActionButton } from '@/components/MobileActionButton';
+import { Sparkles, FileText, Shield, ArrowLeft, History, X, Settings, Lock } from 'lucide-react';
 import { PlainTextPreview } from '@/components/PlainTextPreview';
 import { ScoreCardGrid } from '@/components/scores';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { JobDescriptionInput } from '@/components/JobDescriptionInput';
-import { KnockoutChecklist } from '@/components/KnockoutChecklist';
-import { KeywordCoveragePanel } from '@/components/KeywordCoveragePanel';
-import { RecruiterSearchPanel } from '@/components/RecruiterSearchPanel';
-import { SemanticMatchPanel } from '@/components/SemanticMatchPanel';
-import { AiFeaturesPanel } from '@/components/AiFeaturesPanel';
-import { JobMatchSummary } from '@/components/JobMatchSummary';
 import { JobMatchStepper } from '@/components/JobMatchStepper';
 import { ByokKeyModal } from '@/components/ByokKeyModal';
 import { ConsentModal } from '@/components/ConsentModal';
 import { ExportButtons } from '@/components/ExportButtons';
 import { LearnTab } from '@/components/education';
 import { VendorGuidance } from '@/components/ats';
-import { ScoreGuidance } from '@/components/ScoreGuidance';
-import { generateGuidance, GuidanceActionTarget } from '@/lib/analysis/scoreGuidance';
 import { ExportableSession } from '@/lib/export/report';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import { historyStore } from '@/lib/storage/historyStore';
 import { ScoreSnapshot, JobMetadata } from '@/lib/types/history';
 import { HistoryDashboard } from '@/components/history';
-import { AnalysisSession, KnockoutItem, KeywordSet } from '@/lib/types/session';
+import { AnalysisSession, JobArtifact, KnockoutItem, KeywordSet } from '@/lib/types/session';
+import type { TargetingArtifact } from '@/lib/types/targeting';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import {
   analyzeResume,
@@ -167,19 +159,29 @@ export default function ResultsPage() {
   // History state
   const [showHistory, setShowHistory] = useState(false);
   const [historySaved, setHistorySaved] = useState(false);
-
-  // Sidebar collapsed state
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isJobInputExpanded, setIsJobInputExpanded] = useState(false);
+  const [pendingTargeting, setPendingTargeting] = useState<TargetingArtifact | null>(null);
 
   // Progress tracking
   const { saveSession } = useProgress();
-  const { hasAccess } = useAuth();
+  const { user, hasAccess, isLoading: isAuthLoading } = useAuth();
+  const canUseByok = !!user && hasAccess;
+  const hasByokConfigured = canUseByok && !!(llmConfig?.apiKey && llmConfig?.hasConsented);
 
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
-    await updateConfig(newConfig);
+    const gatedConfig = !canUseByok && newConfig.apiKey
+      ? {
+          ...newConfig,
+          apiKey: '',
+          hasConsented: false,
+          consentTimestamp: undefined,
+        }
+      : newConfig;
+
+    await updateConfig(gatedConfig);
     // If user added an API key but hasn't consented yet, show consent modal
-    if (newConfig.apiKey && !newConfig.hasConsented) {
+    if (gatedConfig.apiKey && !gatedConfig.hasConsented) {
       setShowConsentModal(true);
     }
   };
@@ -189,13 +191,25 @@ export default function ResultsPage() {
     await setConsent(true);
   };
 
+  // Enforce hard gate: clear BYOK key if user is not authenticated with active subscription.
+  useEffect(() => {
+    if (isAuthLoading || canUseByok || !llmConfig) return;
+    if (!llmConfig.apiKey && !llmConfig.hasConsented) return;
+
+    void updateConfig({
+      ...llmConfig,
+      apiKey: '',
+      hasConsented: false,
+      consentTimestamp: undefined,
+    });
+  }, [isAuthLoading, canUseByok, llmConfig, updateConfig]);
+
   // Handle free tier analysis (called as part of combined analysis)
   const runFreeTierAnalysis = useCallback(async () => {
     if (!session || !jobText.trim()) return;
 
     // If user has their own API key, skip free tier (BYOK handles it)
-    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
-    if (hasApiKey) {
+    if (hasByokConfigured) {
       console.log('User has API key, using BYOK instead of free tier');
       return;
     }
@@ -203,6 +217,7 @@ export default function ResultsPage() {
     // Call the free tier API - let the server handle rate limiting
     setIsFreeTierAnalyzing(true);
     setFreeTierError(null);
+    setFreeTierResult(null);
 
     try {
       const result = await freeTier.analyze(session.resume.extractedText, jobText);
@@ -213,7 +228,75 @@ export default function ResultsPage() {
     } finally {
       setIsFreeTierAnalyzing(false);
     }
-  }, [session, jobText, freeTier, llmConfig]);
+  }, [session, jobText, freeTier, hasByokConfigured]);
+
+  const buildJobArtifact = useCallback((
+    rawText: string,
+    extractedKeywords: KeywordSet | null,
+    detectedKnockouts: (KnockoutItem | EnhancedKnockoutItem)[]
+  ): JobArtifact | undefined => {
+    if (!rawText.trim()) return undefined;
+
+    return {
+      rawText,
+      extractedKeywords: extractedKeywords || { critical: [], optional: [], all: [] },
+      detectedKnockouts: detectedKnockouts.map((knockout) => ({
+        id: knockout.id,
+        label: knockout.label,
+        category: knockout.category,
+        evidence: knockout.evidence,
+        userConfirmed: knockout.userConfirmed,
+      })),
+    };
+  }, []);
+
+  const buildCurrentJobMeta = useCallback((): JobMetadata | undefined => {
+    if (!jobText.trim()) return undefined;
+
+    return {
+      title: extractJobTitle(jobText),
+      company: vendorResult?.vendor ? extractCompanyFromVendor(jobUrl) : undefined,
+      url: jobUrl || undefined,
+      atsVendor: vendorResult?.vendor || undefined,
+      keywordCount: keywords?.all.length,
+    };
+  }, [jobText, vendorResult, jobUrl, keywords]);
+
+  const saveHistoryEntry = useCallback(async ({
+    parseHealth,
+    risk,
+    semanticScore,
+    recruiterScore,
+    keywordCoverageScore,
+    jobMeta,
+    sessionOverride,
+  }: {
+    parseHealth: number;
+    risk: KnockoutRiskResult['risk'];
+    semanticScore?: number;
+    recruiterScore?: number;
+    keywordCoverageScore?: number;
+    jobMeta?: JobMetadata;
+    sessionOverride?: AnalysisSession;
+  }) => {
+    const sourceSession = sessionOverride || session;
+    if (!sourceSession) return;
+
+    try {
+      const scoreSnapshot: ScoreSnapshot = {
+        parseHealth,
+        knockoutRisk: risk,
+        semanticMatch: semanticScore,
+        recruiterSearch: recruiterScore,
+        keywordCoverage: keywordCoverageScore,
+      };
+
+      await historyStore.upsertFromSession(sourceSession, scoreSnapshot, jobMeta);
+      setHistorySaved(true);
+    } catch (err) {
+      console.error('Failed to save to history:', err);
+    }
+  }, [session]);
 
   // Load session on mount
   useEffect(() => {
@@ -235,6 +318,24 @@ export default function ResultsPage() {
 
     loadSession();
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!session?.job || coverage || jobText.trim()) return;
+
+    const storedJob = session.job;
+    const restoredKeywords = storedJob.extractedKeywords;
+    const restoredKnockouts = storedJob.detectedKnockouts as (KnockoutItem | EnhancedKnockoutItem)[];
+
+    setJobText(storedJob.rawText);
+    setKeywords(restoredKeywords);
+    setKnockouts(restoredKnockouts);
+    setCoverage(calculateCoverage(session.resume.extractedText, restoredKeywords));
+    setRecruiterSearch(
+      calculateRecruiterSearch(session.resume.extractedText, storedJob.rawText, restoredKeywords)
+    );
+    setKnockoutRisk(calculateKnockoutRisk(restoredKnockouts));
+    setIsJobInputExpanded(true);
+  }, [coverage, jobText, session]);
 
   // Handle Escape key for modal
   useEffect(() => {
@@ -280,6 +381,7 @@ export default function ResultsPage() {
     if (!session || !jobText.trim()) return;
 
     setIsAnalyzingJD(true);
+    setSemanticMatch(null);
 
     try {
       // Extract keywords
@@ -328,8 +430,16 @@ export default function ResultsPage() {
       const riskResult = calculateKnockoutRisk(allKnockouts);
       setKnockoutRisk(riskResult);
 
+      const nextJobArtifact = buildJobArtifact(jobText, extractedKeywords, allKnockouts);
+      if (nextJobArtifact) {
+        setSession((prev) => (prev ? { ...prev, job: nextJobArtifact } : prev));
+        void sessionStore.update(session.id, { job: nextJobArtifact });
+      }
+
+      let semanticScore: number | undefined;
+
       // Calculate semantic match if BYOK is configured
-      if (llmConfig && isSemanticMatchAvailable(llmConfig)) {
+      if (hasByokConfigured && llmConfig && isSemanticMatchAvailable(llmConfig)) {
         setIsAnalyzingSemantic(true);
         try {
           const semanticResult = await calculateSemanticMatch(
@@ -338,6 +448,7 @@ export default function ResultsPage() {
             llmConfig
           );
           setSemanticMatch(semanticResult);
+          semanticScore = semanticResult.success ? semanticResult.score : undefined;
         } catch (err) {
           console.error('Error calculating semantic match:', err);
         } finally {
@@ -353,33 +464,25 @@ export default function ResultsPage() {
         saveSession(session.id, session.resume.fileName, true);
       }
 
-      // Auto-save to history
-      if (!historySaved && session) {
-        try {
-          // Get parse health from the resume analysis
-          const resumeAnalysis = analyzeResume(session.resume);
-          const scoreSnapshot: ScoreSnapshot = {
-            parseHealth: resumeAnalysis.scores.parseHealth,
-            knockoutRisk: riskResult?.risk || 'low',
-            semanticMatch: undefined, // Will be set after semantic analysis
-            recruiterSearch: recruiterSearchResult?.score,
-            keywordCoverage: coverageResult.score,
-          };
-
-          const jobMeta: JobMetadata | undefined = jobText.trim() ? {
+      // Save/update history entry with job match data
+      const jobMeta: JobMetadata | undefined = jobText.trim()
+        ? {
             title: extractJobTitle(jobText),
             company: vendorResult?.vendor ? extractCompanyFromVendor(jobUrl) : undefined,
             url: jobUrl || undefined,
             atsVendor: vendorResult?.vendor || undefined,
             keywordCount: extractedKeywords.all.length,
-          } : undefined;
+          }
+        : undefined;
 
-          await historyStore.saveFromSession(session, scoreSnapshot, jobMeta);
-          setHistorySaved(true);
-        } catch (err) {
-          console.error('Failed to save to history:', err);
-        }
-      }
+      await saveHistoryEntry({
+        parseHealth: analysis?.scores.parseHealth ?? 0,
+        risk: riskResult?.risk || 'low',
+        semanticScore,
+        recruiterScore: recruiterSearchResult?.score,
+        keywordCoverageScore: coverageResult.score,
+        jobMeta,
+      });
 
       // Run free tier AI analysis - AWAIT it so user sees full loading state
       await runFreeTierAnalysis();
@@ -388,7 +491,7 @@ export default function ResultsPage() {
     } finally {
       setIsAnalyzingJD(false);
     }
-  }, [session, jobText, llmConfig, historySaved, vendorResult, jobUrl, runFreeTierAnalysis]);
+  }, [session, jobText, llmConfig, vendorResult, jobUrl, runFreeTierAnalysis, hasByokConfigured, analysis?.scores.parseHealth, saveHistoryEntry, buildJobArtifact]);
 
   // Handle knockout confirmation change
   const handleKnockoutChange = useCallback(
@@ -408,39 +511,80 @@ export default function ResultsPage() {
     []
   );
 
-  // Dynamic score-based guidance
-  const guidanceItems = useMemo(() => {
-    const hasApiKey = !!(llmConfig?.apiKey && llmConfig?.hasConsented);
-    return generateGuidance({
-      parseHealth: analysis?.scores.parseHealth ?? 0,
-      knockoutRisk: knockoutRisk?.risk,
-      knockoutCount: knockouts.length,
-      semanticMatch: semanticMatch?.score,
-      recruiterSearch: recruiterSearch?.score,
-      keywordCoverage: coverage?.score,
-      hasJobDescription: !!coverage,
-      hasApiKey,
-      hasAccess,
-      freeTierRemaining: freeTier.status?.remaining,
-    });
-  }, [analysis, knockoutRisk, knockouts.length, semanticMatch, recruiterSearch, coverage, llmConfig, hasAccess, freeTier.status]);
-
-  const handleGuidanceAction = useCallback((target: GuidanceActionTarget) => {
-    switch (target) {
-      case 'findings':
-        setActiveTab('overview');
-        break;
-      case 'jobmatch':
-        setActiveTab('jobmatch');
-        break;
-      case 'ai-settings':
-        setShowKeyModal(true);
-        break;
-      case 'pricing':
-        router.push('/pricing');
-        break;
+  useEffect(() => {
+    if (jobText.trim().length > 0) {
+      setIsJobInputExpanded(true);
     }
-  }, [router]);
+  }, [jobText]);
+
+  useEffect(() => {
+    if (!session || !pendingTargeting) return;
+    if (JSON.stringify(session.targeting ?? null) === JSON.stringify(pendingTargeting)) return;
+
+    const timeout = window.setTimeout(() => {
+      const nextJobArtifact = buildJobArtifact(jobText, keywords, knockouts) || session.job;
+      const nextSession: AnalysisSession = {
+        ...session,
+        job: nextJobArtifact,
+        targeting: pendingTargeting,
+      };
+
+      setSession(nextSession);
+
+      void (async () => {
+        await sessionStore.update(session.id, {
+          job: nextJobArtifact,
+          targeting: pendingTargeting,
+        });
+
+        await saveHistoryEntry({
+          parseHealth: analysis?.scores.parseHealth ?? 0,
+          risk: knockoutRisk?.risk || 'low',
+          semanticScore: semanticMatch?.success ? semanticMatch.score : undefined,
+          recruiterScore: recruiterSearch?.score,
+          keywordCoverageScore: coverage?.score,
+          jobMeta: buildCurrentJobMeta(),
+          sessionOverride: nextSession,
+        });
+      })();
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    analysis?.scores.parseHealth,
+    buildCurrentJobMeta,
+    buildJobArtifact,
+    coverage?.score,
+    jobText,
+    keywords,
+    knockouts,
+    knockoutRisk?.risk,
+    pendingTargeting,
+    recruiterSearch?.score,
+    saveHistoryEntry,
+    semanticMatch,
+    session,
+  ]);
+
+  useEffect(() => {
+    if (!session || !analysis || historySaved) return;
+
+    // Baseline save so History appears right after first resume analysis.
+    void saveHistoryEntry({
+      parseHealth: analysis.scores.parseHealth,
+      risk: 'low',
+      semanticScore: undefined,
+      recruiterScore: undefined,
+      keywordCoverageScore: undefined,
+      jobMeta: undefined,
+    });
+  }, [session, analysis, historySaved, saveHistoryEntry]);
+
+  useEffect(() => {
+    if (!coverage && activeTab === 'jobmatch') {
+      setActiveTab('overview');
+    }
+  }, [coverage, activeTab]);
 
   // Loading state
   if (loading) {
@@ -501,6 +645,31 @@ export default function ResultsPage() {
 
   const { resume } = session;
   const { scores, findings } = analysis;
+  const issueCount = findings.filter((finding) => finding.severity !== 'info').length;
+  const positiveCount = findings.filter((finding) => finding.severity === 'info').length;
+  const isAtsReady = issueCount === 0;
+  const hasJobMatchData = !!coverage;
+  const scrollToStep2 = () => {
+    setIsJobInputExpanded(true);
+    window.setTimeout(() => {
+      document.getElementById('job-description-section')?.scrollIntoView({ behavior: 'smooth' });
+    }, 0);
+  };
+
+  const renderScoreCards = () => (
+    <ScoreCardGrid
+      scores={scores}
+      knockoutRisk={knockoutRisk?.risk || 'low'}
+      knockoutCount={knockouts.filter(k => k.userConfirmed === false || k.userConfirmed === undefined).length}
+      semanticMatch={semanticMatch?.success ? semanticMatch.score : undefined}
+      isSemanticLoading={isAnalyzingSemantic}
+      recruiterSearch={recruiterSearch?.score}
+      hasByokConfigured={hasByokConfigured}
+      hasJobDescription={jobText.trim().length > 50}
+      onConfigureByok={() => setShowKeyModal(true)}
+      onAddJobDescription={scrollToStep2}
+    />
+  );
 
   return (
     <div className="min-h-screen text-indigo-100 overflow-x-hidden">
@@ -532,15 +701,15 @@ export default function ResultsPage() {
           <button
             onClick={() => setShowKeyModal(true)}
             className={`flex items-center gap-2 text-sm px-4 py-2 rounded-full border transition-colors ${
-              llmConfig?.apiKey && llmConfig?.hasConsented
+              hasByokConfigured
                 ? 'text-emerald-300 hover:text-emerald-200 bg-emerald-900/30 border-emerald-700/30 hover:border-emerald-500/50'
                 : 'text-amber-300 hover:text-amber-200 bg-amber-900/30 border-amber-700/30 hover:border-amber-500/50'
             }`}
-            title={llmConfig?.apiKey ? 'AI settings configured' : 'AI settings and Gemini key'}
+            title={hasByokConfigured ? 'AI settings configured' : 'AI settings and Gemini key'}
           >
             <Settings className="w-4 h-4" />
             <span className="font-medium hidden sm:inline">
-              {llmConfig?.apiKey && llmConfig?.hasConsented ? 'AI Settings ✓' : 'AI Settings'}
+              {hasByokConfigured ? 'AI Settings ✓' : 'AI Settings'}
             </span>
           </button>
           <button
@@ -554,7 +723,7 @@ export default function ResultsPage() {
       </nav>
 
       {/* Main content */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-32 pt-4">
+      <main className="relative z-10 max-w-6xl mx-auto px-6 pb-16 pt-4">
         {/* Header with breadcrumb */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -611,271 +780,296 @@ export default function ResultsPage() {
           </div>
         </motion.div>
 
-        {/* Score Cards Grid - Full Width */}
+        {/* Primary summary */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12 }}
+          className="mb-6"
+        >
+          <div className="rounded-2xl border border-indigo-500/30 bg-indigo-900/35 p-4 md:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide font-semibold text-indigo-300">
+                  Resume Summary
+                </p>
+                <h2 className="mt-1 text-lg md:text-xl font-bold text-white">
+                  {isAtsReady ? 'Your resume is ATS-ready' : `${issueCount} issue${issueCount === 1 ? '' : 's'} to fix first`}
+                </h2>
+                <p className="mt-2 text-sm text-indigo-200">
+                  {issueCount} issue{issueCount === 1 ? '' : 's'} found
+                  {positiveCount > 0 ? ` • ${positiveCount} positive` : ''}
+                </p>
+                <p className="mt-2 text-sm text-indigo-300">
+                  Want job-specific matching? Add a job description in the optional section below.
+                </p>
+              </div>
+              <p className="self-start text-xs sm:text-sm text-indigo-300">
+                <span className="font-semibold text-indigo-200">Status:</span>{' '}
+                <span className={isAtsReady ? 'text-emerald-300 font-semibold' : 'text-amber-300 font-semibold'}>
+                  {isAtsReady ? 'Ready to apply' : 'Needs fixes'}
+                </span>
+              </p>
+            </div>
+          </div>
+        </motion.section>
+
+        {/* Job description input (optional) */}
+        <motion.section
+          id="job-description-section"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="mb-6"
+        >
+          <div className="glass-card rounded-2xl p-4 md:p-5">
+            <button
+              type="button"
+              onClick={() => setIsJobInputExpanded((prev) => !prev)}
+              className="w-full text-left flex items-center justify-between gap-3"
+              aria-expanded={isJobInputExpanded}
+            >
+              <div>
+                <p className="text-xs uppercase tracking-wide font-semibold text-indigo-300">
+                  Optional Step
+                </p>
+                <h2 className="text-lg md:text-xl font-bold text-white mt-1">Add Job Description</h2>
+                <p className="text-sm text-indigo-300 mt-1">
+                  {coverage
+                    ? 'Job-specific analysis is ready. Open to update or compare with another role.'
+                    : 'Paste a job post from LinkedIn, Indeed, or a careers page to unlock role-specific matching.'}
+                </p>
+              </div>
+              <span className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                coverage
+                  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                  : 'bg-indigo-800/50 border-indigo-500/40 text-indigo-200'
+              }`}>
+                {isJobInputExpanded ? 'Hide' : coverage || jobText.trim() ? 'Edit' : 'Open'}
+              </span>
+            </button>
+
+            {isJobInputExpanded && (
+              <div className="mt-4">
+                <JobDescriptionInput
+                  jobText={jobText}
+                  onJobTextChange={setJobText}
+                  jobUrl={jobUrl}
+                  onJobUrlChange={handleJobUrlChange}
+                  vendorResult={vendorResult}
+                  onAnalyze={handleAnalyzeJD}
+                  isLoading={isAnalyzingJD}
+                  hasResume={true}
+                  hasApiKey={hasByokConfigured}
+                  onOpenApiKeyModal={() => setShowKeyModal(true)}
+                  freeTierStatus={freeTier.status}
+                  freeTierLoading={freeTier.isLoading}
+                />
+              </div>
+            )}
+          </div>
+        </motion.section>
+
+        {/* Score cards (single render path) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           className="mb-6"
         >
-          <ScoreCardGrid
-            scores={scores}
-            knockoutRisk={knockoutRisk?.risk || 'low'}
-            knockoutCount={knockouts.filter(k => k.userConfirmed === false || k.userConfirmed === undefined).length}
-            semanticMatch={semanticMatch?.success ? semanticMatch.score : undefined}
-            isSemanticLoading={isAnalyzingSemantic}
-            recruiterSearch={recruiterSearch?.score}
-            hasByokConfigured={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
-            hasJobDescription={jobText.trim().length > 50}
-            onConfigureByok={() => setShowKeyModal(true)}
-            onAddJobDescription={() => {
-              // Scroll to JD input
-              document.getElementById('job-description-section')?.scrollIntoView({ behavior: 'smooth' });
-            }}
-          />
+          <details className="rounded-2xl border border-indigo-500/30 bg-indigo-900/20 p-3 md:p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-indigo-200">
+              Show detailed score breakdown (optional)
+            </summary>
+            <div className="mt-4">
+              {renderScoreCards()}
+            </div>
+          </details>
         </motion.div>
 
-        {/* Main content grid */}
+        {/* PDF layout signals (secondary) */}
+        {resume.extractionMeta.pdfSignals && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="mb-6"
+          >
+            <details className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
+              <summary className="px-5 py-3 cursor-pointer text-sm font-semibold text-indigo-200 hover:bg-indigo-900/40 transition-colors">
+                PDF layout signals (advanced)
+              </summary>
+              <div className="p-5 space-y-3 border-t border-indigo-500/20">
+                <SignalRow
+                  label="Columns"
+                  value={resume.extractionMeta.pdfSignals.estimatedColumns.toString()}
+                  status={
+                    resume.extractionMeta.pdfSignals.estimatedColumns === 1
+                      ? 'good'
+                      : 'warn'
+                  }
+                  tooltip="Number of text columns detected. Single-column layouts parse most reliably."
+                />
+                <SignalRow
+                  label="Column Risk"
+                  value={capitalize(resume.extractionMeta.pdfSignals.columnMergeRisk)}
+                  status={riskToStatus(resume.extractionMeta.pdfSignals.columnMergeRisk)}
+                  tooltip="Risk that multi-column text gets merged incorrectly, scrambling your content."
+                />
+                <SignalRow
+                  label="Header Risk"
+                  value={capitalize(resume.extractionMeta.pdfSignals.headerContactRisk)}
+                  status={riskToStatus(
+                    resume.extractionMeta.pdfSignals.headerContactRisk
+                  )}
+                  tooltip="Risk that contact info in headers/footers gets missed by ATS parsers."
+                />
+                <SignalRow
+                  label="Text Density"
+                  value={capitalize(resume.extractionMeta.pdfSignals.textDensity)}
+                  status={
+                    resume.extractionMeta.pdfSignals.textDensity === 'low'
+                      ? 'warn'
+                      : 'good'
+                  }
+                  tooltip="Ratio of text to whitespace. Low density may indicate images or graphics with embedded text."
+                />
+              </div>
+            </details>
+          </motion.div>
+        )}
+
+        {/* Main content */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className={`grid grid-cols-1 gap-4 md:gap-6 transition-all duration-300 ${
-            sidebarCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'
-          }`}
+          className="space-y-4"
         >
-          {/* Left column - JD Input & PDF Signals (Collapsible) */}
-          <div
-            className={`transition-all duration-300 ${
-              sidebarCollapsed
-                ? 'lg:hidden'
-                : 'lg:col-span-1 space-y-6'
-            }`}
-            id="job-description-section"
-          >
-            {/* Collapse button for desktop - inside sidebar */}
-            <div className="hidden lg:flex justify-end mb-2">
-              <button
-                onClick={() => setSidebarCollapsed(true)}
-                className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-200 bg-indigo-900/50 hover:bg-indigo-800/50 px-3 py-1.5 rounded-lg transition-colors"
-                aria-label="Collapse sidebar"
-              >
-                <PanelLeftClose className="w-4 h-4" />
-                <span>Collapse</span>
-              </button>
-            </div>
-
-            {/* Layout signals (if PDF) */}
-            {resume.extractionMeta.pdfSignals && (
-              <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-5">
-                <h3 className="text-sm font-bold text-white mb-4">
-                  PDF Layout Signals
-                </h3>
-                <div className="space-y-3">
-                  <SignalRow
-                    label="Columns"
-                    value={resume.extractionMeta.pdfSignals.estimatedColumns.toString()}
-                    status={
-                      resume.extractionMeta.pdfSignals.estimatedColumns === 1
-                        ? 'good'
-                        : 'warn'
-                    }
-                    tooltip="Number of text columns detected. Single-column layouts parse most reliably."
-                  />
-                  <SignalRow
-                    label="Column Risk"
-                    value={capitalize(resume.extractionMeta.pdfSignals.columnMergeRisk)}
-                    status={riskToStatus(resume.extractionMeta.pdfSignals.columnMergeRisk)}
-                    tooltip="Risk that multi-column text gets merged incorrectly, scrambling your content."
-                  />
-                  <SignalRow
-                    label="Header Risk"
-                    value={capitalize(resume.extractionMeta.pdfSignals.headerContactRisk)}
-                    status={riskToStatus(
-                      resume.extractionMeta.pdfSignals.headerContactRisk
-                    )}
-                    tooltip="Risk that contact info in headers/footers gets missed by ATS parsers."
-                  />
-                  <SignalRow
-                    label="Text Density"
-                    value={capitalize(resume.extractionMeta.pdfSignals.textDensity)}
-                    status={
-                      resume.extractionMeta.pdfSignals.textDensity === 'low'
-                        ? 'warn'
-                        : 'good'
-                    }
-                    tooltip="Ratio of text to whitespace. Low density may indicate images or graphics with embedded text."
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Job Description Input */}
-            <JobDescriptionInput
-              jobText={jobText}
-              onJobTextChange={setJobText}
-              jobUrl={jobUrl}
-              onJobUrlChange={handleJobUrlChange}
-              vendorResult={vendorResult}
-              onAnalyze={handleAnalyzeJD}
-              isLoading={isAnalyzingJD}
-              hasResume={true}
-              parseScore={scores.parseHealth}
-              hasApiKey={!!llmConfig?.apiKey && !!llmConfig?.hasConsented}
-              onOpenApiKeyModal={() => setShowKeyModal(true)}
-              freeTierStatus={freeTier.status}
-            />
-          </div>
-
-          {/* Right column - Tabs */}
-          <div className={sidebarCollapsed ? 'lg:col-span-1' : 'lg:col-span-2'}>
-            {/* Expand sidebar button (when collapsed) */}
-            {sidebarCollapsed && (
-              <div className="hidden lg:flex mb-4">
-                <button
-                  onClick={() => setSidebarCollapsed(false)}
-                  className="flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-100 bg-indigo-900/50 hover:bg-indigo-800/50 px-4 py-2 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-colors"
-                  aria-label="Expand sidebar"
-                >
-                  <PanelLeft className="w-4 h-4" />
-                  <span>Show Job Description</span>
-                </button>
-              </div>
-            )}
-
-            {/* Tab buttons - Simplified to 3 tabs */}
-            <div className="flex gap-1 mb-4 bg-indigo-950/80 backdrop-blur-sm rounded-xl p-1.5 border border-indigo-500/20">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'overview'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
-                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
-                }`}
-              >
-                Overview
-              </button>
-              <button
-                onClick={() => setActiveTab('jobmatch')}
-                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'jobmatch'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
-                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
-                }`}
-              >
+          {/* Tab buttons - Simplified to 3 tabs */}
+          <div className="flex gap-1 mb-4 bg-indigo-950/80 backdrop-blur-sm rounded-xl p-1.5 border border-indigo-500/20">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
+                activeTab === 'overview'
+                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                  : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => {
+                if (hasJobMatchData) setActiveTab('jobmatch');
+              }}
+              disabled={!hasJobMatchData}
+              aria-disabled={!hasJobMatchData}
+              className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
+                activeTab === 'jobmatch'
+                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                  : hasJobMatchData
+                    ? 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
+                    : 'text-indigo-500/80 cursor-not-allowed'
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {!hasJobMatchData && <Lock className="w-3.5 h-3.5" />}
                 Job Match
-                {coverage && (
-                  <span
-                    className={`ml-2 px-2 py-0.5 text-xs rounded-full font-bold ${
-                      coverage.score >= 80
-                        ? 'bg-emerald-500/30 text-emerald-300'
-                        : coverage.score >= 50
-                          ? 'bg-yellow-500/30 text-yellow-300'
-                          : 'bg-red-500/30 text-red-300'
-                    }`}
-                  >
-                    {coverage.score}%
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('details')}
-                className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
-                  activeTab === 'details'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
-                    : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
-                }`}
-              >
-                Details
-              </button>
-            </div>
-
-            {/* Tab content */}
-            {activeTab === 'overview' && (
-              <div className="space-y-6">
-                {/* Findings Panel - Issues and recommendations */}
-                <FindingsPanel findings={findings} />
-
-                {/* Dynamic score-based guidance */}
-                <ScoreGuidance items={guidanceItems} onAction={handleGuidanceAction} />
-              </div>
-            )}
-
-            {activeTab === 'jobmatch' && (
-              <div className="space-y-4">
-                {/* Vendor Guidance (if detected) */}
-                {vendorResult?.detected && (
-                  <VendorGuidance
-                    vendor={vendorResult.vendor || null}
-                    confidence={vendorResult.confidence}
-                    compact={!!coverage}
-                  />
-                )}
-
-                {!coverage ? (
-                  <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 p-8 text-center">
-                    <div className="w-16 h-16 bg-indigo-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-500/30">
-                      <FileText className="w-8 h-8 text-indigo-400" />
-                    </div>
-                    <h3 className="text-lg font-bold text-white mb-2">
-                      No Job Description Analyzed
-                    </h3>
-                    <p className="text-indigo-300 text-sm max-w-md mx-auto mb-4">
-                      Paste a job description to see how well your resume matches the requirements.
-                    </p>
-                    <p className="text-indigo-400 text-xs">
-                      Use the input panel on the left (or scroll down on mobile)
-                    </p>
-                  </div>
-                ) : (
-                  <JobMatchStepper
-                    semanticMatch={semanticMatch || undefined}
-                    recruiterSearch={recruiterSearch || undefined}
-                    coverage={coverage}
-                    knockoutRisk={knockoutRisk || undefined}
-                    knockouts={knockouts}
-                    keywords={keywords}
-                    llmConfig={llmConfig}
-                    resumeText={resume.extractedText}
-                    jobDescriptionText={jobText}
-                    onKnockoutChange={handleKnockoutChange}
-                    onConfigureClick={() => setShowKeyModal(true)}
-                    onConsentClick={() => setShowConsentModal(true)}
-                    isAnalyzingSemantic={isAnalyzingSemantic}
-                    // Free tier props
-                    freeTierStatus={freeTier.status}
-                    freeTierLoading={freeTier.isLoading}
-                    freeTierResult={freeTierResult}
-                    isFreeTierAnalyzing={isFreeTierAnalyzing}
-                    freeTierError={freeTierError}
-                    onFreeTierAnalyze={runFreeTierAnalysis}
-                  />
-                )}
-              </div>
-            )}
-
-            {activeTab === 'details' && (
-              <div className="space-y-6">
-                {/* Raw text preview */}
-                <PlainTextPreview
-                  text={resume.extractedText}
-                  title="What ATS Software Sees"
-                  subtitle="This is the plain text that applicant tracking systems extract from your resume"
-                  maxHeight={400}
-                />
-
-                {/* Learn section - collapsed by default */}
-                <details className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
-                  <summary className="p-4 cursor-pointer text-white font-semibold hover:bg-indigo-900/50 transition-colors">
-                    📚 Learn more about ATS systems
-                  </summary>
-                  <div className="p-4 pt-0">
-                    <LearnTab />
-                  </div>
-                </details>
-              </div>
-            )}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('details')}
+              className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-lg transition-all duration-200 ${
+                activeTab === 'details'
+                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-lg shadow-orange-500/30 ring-2 ring-orange-400/20'
+                  : 'text-indigo-400 hover:text-indigo-200 hover:bg-indigo-900/50'
+              }`}
+            >
+              Details
+            </button>
           </div>
+
+          {/* Tab content */}
+          {activeTab === 'overview' && (
+            <FindingsPanel findings={findings} />
+          )}
+
+          {activeTab === 'jobmatch' && (
+            <div className="space-y-4">
+              {/* Vendor Guidance (if detected) */}
+              {vendorResult?.detected && (
+                <VendorGuidance
+                  vendor={vendorResult.vendor || null}
+                  confidence={vendorResult.confidence}
+                  compact={!!coverage}
+                />
+              )}
+
+              {coverage && (
+                <JobMatchStepper
+                  semanticMatch={semanticMatch || undefined}
+                  recruiterSearch={recruiterSearch || undefined}
+                  coverage={coverage}
+                  knockoutRisk={knockoutRisk || undefined}
+                  knockouts={knockouts}
+                  keywords={keywords}
+                  llmConfig={hasByokConfigured ? llmConfig : null}
+                  resumeFileName={resume.fileName}
+                  resumeText={resume.extractedText}
+                  jobDescriptionText={jobText}
+                  onKnockoutChange={handleKnockoutChange}
+                  onConfigureClick={() => setShowKeyModal(true)}
+                  onConsentClick={() => setShowConsentModal(true)}
+                  isAnalyzingSemantic={isAnalyzingSemantic}
+                  // Free tier props
+                  freeTierStatus={freeTier.status}
+                  freeTierLoading={freeTier.isLoading}
+                  freeTierResult={freeTierResult}
+                  isFreeTierAnalyzing={isFreeTierAnalyzing}
+                  freeTierError={freeTierError}
+                  onFreeTierAnalyze={runFreeTierAnalysis}
+                  initialTargeting={session.targeting || null}
+                  onTargetingArtifactChange={setPendingTargeting}
+                />
+              )}
+            </div>
+          )}
+
+          {activeTab === 'details' && (
+            <div className="space-y-6">
+              {/* Raw text preview */}
+              <PlainTextPreview
+                text={resume.extractedText}
+                title="What ATS Software Sees"
+                subtitle="This is the plain text that applicant tracking systems extract from your resume"
+                maxHeight={400}
+              />
+
+              {/* Learn section - collapsed by default */}
+              <details className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border-2 border-indigo-500/30 overflow-hidden">
+                <summary className="p-4 cursor-pointer text-white font-semibold hover:bg-indigo-900/50 transition-colors">
+                  📚 Learn more about ATS systems
+                </summary>
+                <div className="p-4 pt-0">
+                  <LearnTab />
+                </div>
+              </details>
+            </div>
+          )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mt-8 flex justify-center"
+        >
+          <button
+            onClick={() => router.push('/')}
+            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50"
+          >
+            Analyze Another Resume
+          </button>
         </motion.div>
 
         {/* Privacy reminder */}
@@ -890,36 +1084,15 @@ export default function ResultsPage() {
         </motion.div>
       </main>
 
-      {/* Mobile FAB - Shows when job description section is out of view */}
-      <MobileActionButton
-        targetId="job-description-section"
-        isComplete={!!coverage}
-        label="Add Job Description"
-      />
-
-      {/* Sticky Footer - Analyze Another Resume */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-indigo-950 via-indigo-950/95 to-transparent pt-6 pb-4 pointer-events-none"
-      >
-        <div className="max-w-6xl mx-auto px-6 flex justify-center pointer-events-auto">
-          <button
-            onClick={() => router.push('/')}
-            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 hover:scale-105"
-          >
-            Analyze Another Resume
-          </button>
-        </div>
-      </motion.div>
-
       {/* BYOK Modals */}
       <ByokKeyModal
         isOpen={showKeyModal}
         onClose={() => setShowKeyModal(false)}
         onSave={handleSaveLlmConfig}
         currentConfig={llmConfig || undefined}
+        isAuthenticated={!!user}
+        hasActiveSubscription={hasAccess}
+        isAuthLoading={isAuthLoading}
       />
 
       <ConsentModal

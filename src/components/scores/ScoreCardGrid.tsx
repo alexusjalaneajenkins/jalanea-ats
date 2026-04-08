@@ -59,8 +59,8 @@ export function ScoreCardGrid({
       {/* Header with explanation */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-white">Your Scores</h2>
-        <span className="text-xs text-indigo-400">
-          Like credit reports, each score measures something different
+        <span className="text-xs text-indigo-300 text-right max-w-[260px] sm:max-w-none">
+          Parse Health = formatting quality. Knockout Risk = missing must-haves.
         </span>
       </div>
 
@@ -74,7 +74,7 @@ export function ScoreCardGrid({
               Technical Compliance
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:gap-3 gap-2">
+          <div className="grid grid-cols-1 min-[481px]:grid-cols-2 sm:gap-3 gap-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -108,7 +108,7 @@ export function ScoreCardGrid({
               Content Optimization
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:gap-3 gap-2">
+          <div className="grid grid-cols-1 min-[481px]:grid-cols-2 sm:gap-3 gap-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
