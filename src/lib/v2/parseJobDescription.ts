@@ -34,10 +34,17 @@ Return JSON matching this structure:
 }
 
 Rules:
-- knockoutCriteria: Only include HARD requirements that would auto-reject a candidate. Mark isHardRequirement=true for must-haves, false for strong preferences.
-- requiredSkills: Extract every skill mentioned. Use category "clinical" for healthcare/medical skills, "technical" for tech skills, "tool" for specific software/platforms, "soft" for interpersonal skills.
+- knockoutCriteria: Only include HARD requirements that would auto-reject a candidate (licenses, certifications, degrees, background checks, physical requirements, work authorization). Mark isHardRequirement=true for must-haves, false for strong preferences.
+- requiredSkills: ONLY extract concrete, ATS-searchable professional skills and qualifications that a recruiter would actually filter resumes by. DO NOT include:
+  * Generic aspirational phrases from company culture sections (e.g., "work with kids", "make a difference", "passion for helping")
+  * COVID/safety boilerplate (e.g., "social distancing", "protective hygiene", "PPE")
+  * Universal soft skills everyone claims (e.g., "team player", "detail oriented") — put these in preferredQualifications instead
+  * Company values or mission statements
+  Focus on: specific therapy methods, clinical techniques, certifications, software tools, measurable professional competencies.
+  Use SHORT skill names (e.g., "ABA therapy" not "Applied Behavior Analysis (ABA) therapy experience of at least 1 year"). Include the acronym if common.
+  Use category "clinical" for healthcare/medical skills, "technical" for tech skills, "tool" for specific software/platforms, "soft" for interpersonal skills.
 - matchSection: Where a recruiter would expect to find this — "skills" for listed skills, "certifications" for certs/licenses, "experience" for things proven through work history, "any" for general terms.
-- booleanSearchTerms: The exact keywords a recruiter would type into their ATS search bar to find candidates for this role. Include the job title, key certifications, key skills, and industry terms.
+- booleanSearchTerms: The exact keywords a recruiter would type into their ATS search bar to find candidates for this role. Include the job title, key certifications, key skills, and industry terms. Use SHORT terms (2-3 words max).
 - Distinguish between hard requirements (must-have) and preferences (nice-to-have).
 - Only extract what the posting explicitly states. Do not infer requirements.`;
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { runV2Analysis } from '@/lib/v2';
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const MAX_RESUME_CHARS = 30000;
 const MAX_JD_CHARS = 20000;
