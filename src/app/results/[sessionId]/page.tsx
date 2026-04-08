@@ -43,8 +43,11 @@ import {
 import { useLlmConfig } from '@/hooks/useLlmConfig';
 import { useProgress } from '@/hooks/useProgress';
 import { useFreeTier, FreeTierAnalysisResult } from '@/hooks/useFreeTier';
+import { useV2Analysis } from '@/hooks/useV2Analysis';
 import { useAuth } from '@/hooks/useAuth';
 import { LlmConfig } from '@/lib/llm/types';
+import { V2ResultsPanel } from '@/components/V2ResultsPanel';
+import type { V2AnalysisResult } from '@/lib/v2';
 
 /**
  * Extracts a job title from job description text
@@ -155,6 +158,9 @@ export default function ResultsPage() {
   const [freeTierResult, setFreeTierResult] = useState<FreeTierAnalysisResult | null>(null);
   const [isFreeTierAnalyzing, setIsFreeTierAnalyzing] = useState(false);
   const [freeTierError, setFreeTierError] = useState<string | null>(null);
+
+  // V2 Engine state
+  const v2 = useV2Analysis();
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -486,12 +492,17 @@ export default function ResultsPage() {
 
       // Run free tier AI analysis - AWAIT it so user sees full loading state
       await runFreeTierAnalysis();
+
+      // Run V2 engine analysis in parallel (non-blocking)
+      v2.analyze(session.resume.extractedText, jobText).catch(err => {
+        console.error('V2 analysis background error:', err);
+      });
     } catch (err) {
       console.error('Error analyzing job description:', err);
     } finally {
       setIsAnalyzingJD(false);
     }
-  }, [session, jobText, llmConfig, vendorResult, jobUrl, runFreeTierAnalysis, hasByokConfigured, analysis?.scores.parseHealth, saveHistoryEntry, buildJobArtifact]);
+  }, [session, jobText, llmConfig, vendorResult, jobUrl, runFreeTierAnalysis, hasByokConfigured, analysis?.scores.parseHealth, saveHistoryEntry, buildJobArtifact, v2]);
 
   // Handle knockout confirmation change
   const handleKnockoutChange = useCallback(
@@ -656,12 +667,14 @@ export default function ResultsPage() {
     }, 0);
   };
 
-  // Derive the best available AI match score: prefer BYOK semantic, fall back to free tier
-  const effectiveAiScore = semanticMatch?.success
-    ? semanticMatch.score
-    : freeTierResult?.score != null
-      ? freeTierResult.score
-      : undefined;
+  // Derive the best available AI match score: prefer V2 composite, then BYOK semantic, then free tier
+  const effectiveAiScore = v2.result?.composite.score != null
+    ? v2.result.composite.score
+    : semanticMatch?.success
+      ? semanticMatch.score
+      : freeTierResult?.score != null
+        ? freeTierResult.score
+        : undefined;
   const hasAnyAiScore = effectiveAiScore !== undefined;
 
   const renderScoreCards = () => (
@@ -1004,6 +1017,21 @@ export default function ResultsPage() {
 
           {activeTab === 'jobmatch' && (
             <div className="space-y-4">
+              {/* V2 Engine Results (AI-first multi-layer analysis) */}
+              {v2.isAnalyzing && (
+                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-900/20 p-6 text-center">
+                  <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-indigo-200 font-semibold">Running V2 ATS Engine...</p>
+                  <p className="text-indigo-400 text-sm mt-1">AI parsing resume + job description → 4-layer scoring</p>
+                </div>
+              )}
+              {v2.result && <V2ResultsPanel result={v2.result} />}
+              {v2.error && (
+                <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3">
+                  <p className="text-sm text-red-300">V2 Engine Error: {v2.error}</p>
+                </div>
+              )}
+
               {/* Vendor Guidance (if detected) */}
               {vendorResult?.detected && (
                 <VendorGuidance
