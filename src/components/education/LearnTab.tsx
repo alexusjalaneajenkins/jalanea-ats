@@ -40,7 +40,8 @@ export function LearnTab({ highlightedScore }: LearnTabProps) {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        setReadSections(new Set(JSON.parse(stored)));
+        const restoredSections = new Set<string>(JSON.parse(stored));
+        queueMicrotask(() => setReadSections(restoredSections));
       }
     } catch {
       // Ignore localStorage errors

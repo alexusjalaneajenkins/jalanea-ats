@@ -1,9 +1,10 @@
 'use client';
 
-import { isValidElement, useEffect, useState, type ReactNode } from 'react';
+import { isValidElement, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, ChevronDown, Mail, ArrowLeft, Search, HelpCircle, User, CreditCard, Wrench, Shield } from 'lucide-react';
+import { PUBLIC_SUPPORT_EMAIL } from '@/lib/contact/publicSupport';
 
 interface FAQItem {
   question: string;
@@ -42,7 +43,7 @@ const faqCategories: FAQCategory[] = [
       },
       {
         question: 'What file formats are supported?',
-        answer: 'We support PDF files for resume uploads. Make sure your PDF is text-based (not a scanned image) for the best analysis results.',
+        answer: 'We support PDF, DOCX, and TXT files up to 10MB. PDFs should be text-based rather than scanned images, and password-protected PDFs must be unlocked before upload.',
       },
       {
         question: 'How accurate is the ATS matching?',
@@ -65,15 +66,23 @@ const faqCategories: FAQCategory[] = [
       },
       {
         question: 'I forgot my password. How do I reset it?',
-        answer: 'Currently, password reset is handled through your account settings. If you\'re locked out, contact us at support-ats@jalanea.dev and we\'ll help you regain access.',
+        answer: (
+          <>
+            Choose{' '}
+            <Link href="/forgot-password" className="text-indigo-300 underline hover:text-indigo-200">
+              Forgot password
+            </Link>{' '}
+            on the sign-in page. We&apos;ll send a recovery link to your account email.
+          </>
+        ),
       },
       {
         question: 'How do I change my email address?',
         answer: 'Go to your Account page and click "Change email" in the Account Settings section. You\'ll receive a confirmation link at your new email address.',
       },
       {
-        question: 'How do I delete my account?',
-        answer: 'Go to your Account page and click "Delete account" in the Account Settings section. This will cancel any active subscriptions and permanently delete all your data.',
+        question: 'How do I remove my Jalanea ATS data?',
+        answer: 'Go to your Account page and choose "Remove Jalanea ATS data." This cancels active ATS subscriptions and removes ATS access, product-scoped billing links, usage records, and local resume history. Your shared sign-in, profile, tutoring data, and Stripe payment records remain.',
       },
     ],
   },
@@ -118,7 +127,7 @@ const faqCategories: FAQCategory[] = [
     items: [
       {
         question: 'Why is my resume not uploading?',
-        answer: 'Make sure your file is a PDF under 10MB. If the upload still fails, try refreshing the page or using a different browser. Contact us if the issue persists.',
+        answer: 'Make sure the file is a PDF, DOCX, or TXT file under 10MB. Unlock password-protected PDFs and use a text-based PDF rather than a scan. If it still fails, refresh or try another modern browser.',
       },
       {
         question: 'The analysis is taking too long. What should I do?',
@@ -143,7 +152,10 @@ const faqCategories: FAQCategory[] = [
         question: 'Is my resume data secure?',
         answer: (
           <>
-            Yes. Your resume data is encrypted in transit and at rest. We use industry-standard security practices to protect your information. Read full details in our{' '}
+            Resume files are parsed in your browser and are not stored on Jalanea&apos;s servers.
+            Browser-saved history and BYOK credentials are stored in your browser and are not
+            encrypted by Jalanea. AI text is transmitted securely to Google only after consent.
+            Read full details in our{' '}
             <Link href="/privacy" className="text-indigo-300 underline hover:text-indigo-200">
               Privacy Policy
             </Link>.
@@ -152,25 +164,39 @@ const faqCategories: FAQCategory[] = [
       },
       {
         question: 'Do you share my data with employers or third parties?',
-        answer: 'No. We never share, sell, or provide your resume or personal data to employers, recruiters, or any third parties. Your data is yours.',
+        answer: 'We do not sell your resume or provide it to employers or recruiters. When you consent to AI processing, resume and job-description text is sent to Google Gemini. Supabase, Stripe, and Resend process account, billing, and contact data as described in the Privacy Policy.',
       },
       {
         question: 'How long do you keep my data?',
-        answer: 'We retain your data while your account is active. Analysis results are stored for your reference. When you delete your account, all your data is permanently removed.',
+        answer: 'Resume sessions and analysis history are stored in your browser until you clear them. ATS billing and usage records are retained while needed to operate the service, prevent abuse, and meet legal obligations. Removing Jalanea ATS deletes the product-scoped records covered by that action while preserving your shared identity.',
       },
       {
         question: 'How can I request my data or deletion (GDPR)?',
-        answer: 'You can delete your account from the Account page, which removes all your data. For data export requests or other privacy inquiries, contact us at support-ats@jalanea.dev.',
+        answer: (
+          <>
+            You can remove Jalanea ATS data from the Account page. Because your sign-in may also be
+            used by Jalanea tutoring products, this does not delete the shared identity or tutoring
+            records. For a broader request, email{' '}
+            <a href={`mailto:${PUBLIC_SUPPORT_EMAIL}`} className="text-indigo-300 underline hover:text-indigo-200">
+              {PUBLIC_SUPPORT_EMAIL}
+            </a>.
+          </>
+        ),
       },
     ],
   },
 ];
 
-function FAQAccordion({ item, isOpen, onToggle }: { item: FAQItem; isOpen: boolean; onToggle: () => void }) {
+function FAQAccordion({ item, itemId, isOpen, onToggle }: { item: FAQItem; itemId: string; isOpen: boolean; onToggle: () => void }) {
+  const buttonId = `${itemId}-button`;
+  const panelId = `${itemId}-panel`;
   return (
     <div className="border-b border-indigo-500/10 last:border-b-0">
       <button
         onClick={onToggle}
+        id={buttonId}
+        aria-expanded={isOpen}
+        aria-controls={panelId}
         className="w-full flex items-center justify-between py-4 text-left group"
       >
         <span className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors pr-4">
@@ -183,6 +209,9 @@ function FAQAccordion({ item, isOpen, onToggle }: { item: FAQItem; isOpen: boole
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            id={panelId}
+            role="region"
+            aria-labelledby={buttonId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -203,12 +232,6 @@ export default function HelpPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      setActiveCategory(null);
-    }
-  }, [searchQuery]);
 
   const toggleItem = (categoryId: string, index: number) => {
     const key = `${categoryId}-${index}`;
@@ -288,7 +311,13 @@ export default function HelpPage() {
             <input
               type="text"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => {
+                const nextQuery = e.target.value;
+                setSearchQuery(nextQuery);
+                if (nextQuery.trim()) {
+                  setActiveCategory(null);
+                }
+              }}
               placeholder="Search for answers..."
               className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#1a1a2e]/90 border border-indigo-500/20 text-white placeholder-indigo-400 focus:outline-none focus:border-indigo-400 transition-colors"
             />
@@ -355,6 +384,7 @@ export default function HelpPage() {
                   <FAQAccordion
                     key={index}
                     item={item}
+                    itemId={`faq-${category.id}-${index}`}
                     isOpen={openItems[`${category.id}-${index}`] || false}
                     onToggle={() => toggleItem(category.id, index)}
                   />
@@ -392,7 +422,7 @@ export default function HelpPage() {
             <Mail className="w-4 h-4" />
             Contact Support
           </Link>
-          <p className="text-xs text-indigo-400 mt-3">support-ats@jalanea.dev</p>
+          <p className="text-xs text-indigo-400 mt-3">{PUBLIC_SUPPORT_EMAIL}</p>
           <p className="text-xs text-indigo-500 mt-1">We typically reply within 1-3 business days.</p>
         </motion.div>
       </div>

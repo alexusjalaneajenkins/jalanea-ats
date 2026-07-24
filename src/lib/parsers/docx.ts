@@ -16,12 +16,10 @@ export async function parseDocx(file: File): Promise<ResumeArtifact> {
   // Validate file type
   const validTypes = [
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword',
   ];
   const isValidType =
     validTypes.includes(file.type) ||
-    file.name.toLowerCase().endsWith('.docx') ||
-    file.name.toLowerCase().endsWith('.doc');
+    file.name.toLowerCase().endsWith('.docx');
 
   if (!isValidType) {
     throw new DocxParseError(
@@ -36,14 +34,6 @@ export async function parseDocx(file: File): Promise<ResumeArtifact> {
     throw new DocxParseError(
       'File is too large. Please upload a DOCX under 10MB.',
       'FILE_TOO_LARGE'
-    );
-  }
-
-  // Warn about .doc files (older format)
-  if (file.name.toLowerCase().endsWith('.doc')) {
-    throw new DocxParseError(
-      'Old .doc format detected. Please save as .docx for best results.',
-      'OLD_FORMAT'
     );
   }
 
@@ -84,9 +74,6 @@ export async function parseDocx(file: File): Promise<ResumeArtifact> {
           'Very little text was extracted. The document may be mostly images or empty.',
       });
     }
-
-    // Count paragraphs (rough estimate)
-    const paragraphCount = extractedText.split(/\n\s*\n/).filter((p) => p.trim()).length;
 
     // Build extraction metadata
     const extractionMeta: ExtractionMeta = {

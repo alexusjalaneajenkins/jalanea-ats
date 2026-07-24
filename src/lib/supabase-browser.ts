@@ -7,17 +7,17 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient, User, Session } from '@supabase/supabase-js';
+import { deleteAccountWithDependencies } from './accountDeletion';
+import { eraseLocalAtsData } from './storage/localDataErasure';
+import { buildAuthCallbackUrl, getSafeRedirectPath } from './auth/redirects';
 
 let supabaseInstance: SupabaseClient | null = null;
 
-const OWNER_UNLIMITED_EMAILS = new Set([
-  'alexxusjenkins91@gmail.com',
-]);
-
-function hasOwnerUnlimitedAccess(email?: string | null): boolean {
-  if (!email) return false;
-  return OWNER_UNLIMITED_EMAILS.has(email.trim().toLowerCase());
-}
+export type AtsAccessSource =
+  | 'grant'
+  | 'subscription'
+  | 'lifetime'
+  | null;
 
 /**
  * Get or create a Supabase browser client.
@@ -53,6 +53,12 @@ export async function signUp(email: string, password: string): Promise<{ user: U
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo: buildAuthCallbackUrl(
+        window.location.origin,
+        '/account'
+      ),
+    },
   });
 
   if (error) {
@@ -95,7 +101,10 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ error: st
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}/api/auth/callback${redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : ''}`,
+      redirectTo: buildAuthCallbackUrl(
+        window.location.origin,
+        getSafeRedirectPath(redirectTo, '/account')
+      ),
       queryParams: {
         access_type: 'offline',
         prompt: 'consent',
@@ -103,6 +112,43 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ error: st
     },
   });
 
+  return { error: error?.message || null };
+}
+
+/**
+ * Sends a password-recovery email without revealing whether the account exists.
+ */
+export async function requestPasswordReset(
+  email: string
+): Promise<{ error: string | null }> {
+  const supabase = getSupabaseBrowser();
+  if (!supabase) {
+    return { error: 'Auth not configured' };
+  }
+
+  const redirectTo = buildAuthCallbackUrl(
+    window.location.origin,
+    '/update-password'
+  );
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+
+  return { error: error?.message || null };
+}
+
+/**
+ * Updates the password for the currently authenticated or recovery session.
+ */
+export async function updatePassword(
+  password: string
+): Promise<{ error: string | null }> {
+  const supabase = getSupabaseBrowser();
+  if (!supabase) {
+    return { error: 'Auth not configured' };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
   return { error: error?.message || null };
 }
 
@@ -160,11 +206,8 @@ export async function updateEmail(newEmail: string): Promise<{ error: string | n
 }
 
 /**
- * Delete user account
- * This calls a server-side function that handles:
- * - Canceling any active Stripe subscriptions
- * - Deleting user data
- * - Deleting the auth user
+ * Delete the user's ATS account data, then erase ATS-owned browser data and
+ * sign out. Local data is never erased until the server confirms success.
  */
 export async function deleteAccount(): Promise<{ error: string | null }> {
   const supabase = getSupabaseBrowser();
@@ -172,20 +215,29 @@ export async function deleteAccount(): Promise<{ error: string | null }> {
     return { error: 'Auth not configured' };
   }
 
-  // Call server-side deletion endpoint
-  const response = await fetch('/api/account/delete', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+  return deleteAccountWithDependencies({
+    requestDeletion: async () => {
+      const response = await fetch('/api/account/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return {
+          ok: false,
+          error: typeof data.error === 'string' ? data.error : 'Failed to delete ATS account data',
+        };
+      }
+
+      return { ok: true, error: null };
+    },
+    eraseLocalData: eraseLocalAtsData,
+    signOut: async () => {
+      const { error } = await supabase.auth.signOut();
+      return { error: error?.message || null };
+    },
   });
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    return { error: data.error || 'Failed to delete account' };
-  }
-
-  // Sign out after deletion
-  await supabase.auth.signOut();
-  return { error: null };
 }
 
 /**
@@ -193,6 +245,7 @@ export async function deleteAccount(): Promise<{ error: string | null }> {
  */
 export async function checkSubscriptionStatus(): Promise<{
   hasAccess: boolean;
+  accessSource: AtsAccessSource;
   isLifetime: boolean;
   subscription: {
     status: string;
@@ -202,53 +255,85 @@ export async function checkSubscriptionStatus(): Promise<{
 }> {
   const supabase = getSupabaseBrowser();
   if (!supabase) {
-    return { hasAccess: false, isLifetime: false, subscription: null, error: 'Auth not configured' };
+    return { hasAccess: false, accessSource: null, isLifetime: false, subscription: null, error: 'Auth not configured' };
   }
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return { hasAccess: false, isLifetime: false, subscription: null, error: 'Not authenticated' };
+    return { hasAccess: false, accessSource: null, isLifetime: false, subscription: null, error: 'Not authenticated' };
   }
 
-  // Owner account override so the primary Jalanea ATS account always has full access.
-  if (hasOwnerUnlimitedAccess(user.email)) {
+  try {
+    const response = await fetch('/api/entitlement', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const error =
+        payload
+        && typeof payload === 'object'
+        && typeof payload.error === 'string'
+          ? payload.error
+          : 'Unable to verify access right now.';
+      return {
+        hasAccess: false,
+        accessSource: null,
+        isLifetime: false,
+        subscription: null,
+        error,
+      };
+    }
+
+    if (
+      !payload
+      || typeof payload !== 'object'
+      || typeof payload.hasAccess !== 'boolean'
+      || typeof payload.isLifetime !== 'boolean'
+      || !(
+        payload.accessSource === null
+        || payload.accessSource === 'grant'
+        || payload.accessSource === 'subscription'
+        || payload.accessSource === 'lifetime'
+      )
+      || (
+        payload.subscription !== null
+        && (
+          typeof payload.subscription !== 'object'
+          || typeof payload.subscription.status !== 'string'
+          || (
+            payload.subscription.currentPeriodEnd !== null
+            && typeof payload.subscription.currentPeriodEnd !== 'string'
+          )
+        )
+      )
+    ) {
+      return {
+        hasAccess: false,
+        accessSource: null,
+        isLifetime: false,
+        subscription: null,
+        error: 'The access service returned an invalid response.',
+      };
+    }
+
     return {
-      hasAccess: true,
-      isLifetime: true,
-      subscription: {
-        status: 'active',
-        currentPeriodEnd: null,
-      },
+      hasAccess: payload.hasAccess,
+      accessSource: payload.accessSource,
+      isLifetime: payload.isLifetime,
+      subscription: payload.subscription,
       error: null,
     };
+  } catch {
+    return {
+      hasAccess: false,
+      accessSource: null,
+      isLifetime: false,
+      subscription: null,
+      error: 'Unable to verify access right now.',
+    };
   }
-
-  // Query subscriptions table
-  const { data: subscriptions, error } = await supabase
-    .from('subscriptions')
-    .select('status, is_lifetime, current_period_end')
-    .eq('user_id', user.id)
-    .in('status', ['active', 'trialing'])
-    .order('created', { ascending: false })
-    .limit(1);
-
-  if (error) {
-    return { hasAccess: false, isLifetime: false, subscription: null, error: error.message };
-  }
-
-  const subscription = subscriptions?.[0] ?? null;
-
-  if (!subscription) {
-    return { hasAccess: false, isLifetime: false, subscription: null, error: null };
-  }
-
-  return {
-    hasAccess: true,
-    isLifetime: subscription.is_lifetime || false,
-    subscription: {
-      status: subscription.status,
-      currentPeriodEnd: subscription.current_period_end,
-    },
-    error: null,
-  };
 }

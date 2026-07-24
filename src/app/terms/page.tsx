@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { PUBLIC_SUPPORT_EMAIL } from '@/lib/contact/publicSupport';
 
 export const metadata: Metadata = {
   title: 'Terms of Use - Jalanea ATS',
@@ -41,7 +42,7 @@ export default function TermsOfUsePage() {
         <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
           Terms of Use
         </h1>
-        <p className="text-gray-400 mb-8">Last updated: February 2026</p>
+        <p className="text-gray-400 mb-8">Last updated: July 2026</p>
 
         <div className="prose prose-invert prose-lg max-w-none space-y-8">
           {/* TL;DR */}
@@ -49,9 +50,9 @@ export default function TermsOfUsePage() {
             <h2 className="text-xl font-semibold text-indigo-300 mt-0 mb-3">TL;DR</h2>
             <ul className="text-gray-300 space-y-2 mb-0">
               <li><strong>Free to try</strong> &mdash; 3 AI-powered analyses per day, no account needed</li>
-              <li><strong>Your data, your control</strong> &mdash; resumes are processed in your browser</li>
+              <li><strong>Your data, your control</strong> &mdash; files are parsed locally and AI sharing requires consent</li>
               <li><strong>Paid plans are optional</strong> &mdash; $5/month or $15 lifetime for unlimited AI features</li>
-              <li><strong>BYOK is free</strong> &mdash; use your own Gemini API key for unlimited analysis</li>
+              <li><strong>BYOK is not a free-tier feature</strong> &mdash; sign in with verified paid access and use your own Gemini API key</li>
               <li><strong>No guarantees on job outcomes</strong> &mdash; we help optimize, not guarantee placement</li>
             </ul>
           </section>
@@ -86,16 +87,24 @@ export default function TermsOfUsePage() {
           <section id="free-tier" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Free Tier &amp; Demo Usage</h2>
             <p className="text-gray-300">
-              The free tier provides up to 3 AI-powered analyses per day. This limit is tracked
-              by IP address and resets daily at midnight UTC.
+              The free tier provides up to 3 AI-powered analyses per day. This limit uses a keyed,
+              hashed abuse-prevention identifier derived from request signals and resets daily at
+              midnight UTC. Raw IP addresses are not stored in the counter.
             </p>
             <ul className="text-gray-300 space-y-2">
               <li>
                 <strong>No account required:</strong> You can use the free tier without creating an account.
               </li>
               <li>
+                <strong>AI processing:</strong> After you consent, resume and job-description text is
+                sent through Jalanea&apos;s server to Google Gemini and is not stored by Jalanea.
+              </li>
+              <li>
                 <strong>Rate limiting:</strong> We apply rate limits to prevent abuse. Excessive
-                automated requests may be blocked.
+                automated requests may be blocked. Daily free-demo counters normally become
+                eligible for deletion after seven days, while fixed-window AI and contact counters
+                become eligible after 48 hours. Bounded scheduled cleanup removes eligible records
+                over subsequent runs.
               </li>
               <li>
                 <strong>No guarantees:</strong> The free tier is provided as-is. We may adjust
@@ -129,6 +138,10 @@ export default function TermsOfUsePage() {
                 payment information on our servers.
               </li>
               <li>
+                <strong>AI processing:</strong> Paid AI requests send resume and job-description text
+                through Jalanea&apos;s server to Google Gemini after consent.
+              </li>
+              <li>
                 <strong>Refunds:</strong> Contact us within 7 days of purchase if you are unsatisfied.
                 We will process refunds on a case-by-case basis.
               </li>
@@ -139,8 +152,11 @@ export default function TermsOfUsePage() {
           <section id="byok-mode" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Bring Your Own Key (BYOK) Mode</h2>
             <p className="text-gray-300">
-              BYOK mode allows you to use your own Google Gemini API key for unlimited AI
-              analysis at no cost to you (beyond any charges from Google for API usage).
+              BYOK mode allows an eligible user to use their own Google Gemini API key for AI
+              analysis. BYOK is not included in the anonymous free tier: you must be signed in
+              with verified paid ATS access. An account with an explicit complimentary
+              administrative grant may also qualify. Jalanea does not charge per BYOK request,
+              but Google may charge you for API usage.
             </p>
             <ul className="text-gray-300 space-y-2">
               <li>
@@ -158,6 +174,11 @@ export default function TermsOfUsePage() {
                   Privacy Policy
                 </Link>{' '}
                 for details.
+              </li>
+              <li>
+                <strong>Key storage:</strong> If saved, your key is stored in IndexedDB for your
+                account on that browser and is not encrypted by Jalanea. Do not save it on a shared
+                device.
               </li>
             </ul>
           </section>
@@ -249,9 +270,12 @@ export default function TermsOfUsePage() {
             <p className="text-gray-300">
               If you have questions about these terms, please contact us at:
             </p>
-            <p className="text-indigo-400 font-medium">
-              terms@jalanea.works
-            </p>
+            <a
+              href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
+              className="text-indigo-400 font-medium hover:text-indigo-300"
+            >
+              {PUBLIC_SUPPORT_EMAIL}
+            </a>
           </section>
         </div>
       </main>

@@ -5,8 +5,18 @@
  * Includes graceful fallback for SSR and unsupported browsers.
  */
 
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { AnalysisSession } from '../types/session';
+import { openDB } from 'idb';
+import type { DBSchema, IDBPDatabase } from 'idb';
+import type { AnalysisSession } from '../types/session';
+import {
+  isPersistentStorageActive,
+  runWithStorageFallback,
+} from './capability';
+import { createKeyedWriteQueue } from './writeQueue';
+import {
+  runLocalDataClear,
+  runLocalDataMutation,
+} from './mutationBarrier';
 
 // =============================================================================
 // Database Schema
@@ -37,19 +47,12 @@ interface JalaneaATSDB extends DBSchema {
 let dbPromise: Promise<IDBPDatabase<JalaneaATSDB>> | null = null;
 
 /**
- * Check if IndexedDB is available (browser environment)
- */
-function isIndexedDBAvailable(): boolean {
-  return typeof window !== 'undefined' && 'indexedDB' in window;
-}
-
-/**
  * Get or create the database connection
  */
 function getDB(): Promise<IDBPDatabase<JalaneaATSDB>> {
   if (!dbPromise) {
     dbPromise = openDB<JalaneaATSDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion, newVersion, transaction) {
+      upgrade(db, oldVersion) {
         // Version 1: Initial schema
         if (oldVersion < 1) {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
@@ -90,8 +93,10 @@ class InMemoryStore {
   private sessions: Map<string, AnalysisSession> = new Map();
 
   async save(session: AnalysisSession): Promise<void> {
-    session.updatedAt = new Date().toISOString();
-    this.sessions.set(session.id, { ...session });
+    this.sessions.set(session.id, {
+      ...session,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async get(id: string): Promise<AnalysisSession | null> {
@@ -123,6 +128,16 @@ class InMemoryStore {
     };
     this.sessions.set(id, updated);
     return { ...updated };
+  }
+
+  async updateIf(
+    id: string,
+    predicate: (session: AnalysisSession) => boolean,
+    updates: Partial<AnalysisSession>
+  ): Promise<AnalysisSession | null> {
+    const session = this.sessions.get(id);
+    if (!session || !predicate(session)) return null;
+    return this.update(id, updates);
   }
 
   get count(): number {
@@ -165,7 +180,42 @@ class IndexedDBStore {
       return session ?? null;
     } catch (error) {
       console.error('[SessionStore] Failed to get session:', error);
-      return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Applies an update only if the latest stored session still matches the
+   * caller's expected input.
+   */
+  async updateIf(
+    id: string,
+    predicate: (session: AnalysisSession) => boolean,
+    updates: Partial<AnalysisSession>
+  ): Promise<AnalysisSession | null> {
+    try {
+      const db = await getDB();
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const existing = await transaction.store.get(id);
+      if (!existing || !predicate(existing)) {
+        await transaction.done;
+        return null;
+      }
+
+      const updated: AnalysisSession = {
+        ...existing,
+        ...updates,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await transaction.store.put(updated);
+      await transaction.done;
+      return updated;
+    } catch (error) {
+      console.error('[SessionStore] Failed to conditionally update session:', error);
+      throw error;
     }
   }
 
@@ -183,7 +233,7 @@ class IndexedDBStore {
       );
     } catch (error) {
       console.error('[SessionStore] Failed to get all sessions:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -208,7 +258,7 @@ class IndexedDBStore {
       return true;
     } catch (error) {
       console.error('[SessionStore] Failed to delete session:', error);
-      return false;
+      throw error;
     }
   }
 
@@ -246,7 +296,7 @@ class IndexedDBStore {
       return updated;
     } catch (error) {
       console.error('[SessionStore] Failed to update session:', error);
-      return null;
+      throw error;
     }
   }
 
@@ -259,7 +309,7 @@ class IndexedDBStore {
       return await db.count(STORE_NAME);
     } catch (error) {
       console.error('[SessionStore] Failed to count sessions:', error);
-      return 0;
+      throw error;
     }
   }
 
@@ -279,24 +329,34 @@ class IndexedDBStore {
 // Singleton instances
 let indexedDBStore: IndexedDBStore | null = null;
 let inMemoryStore: InMemoryStore | null = null;
+const enqueueSessionWrite = createKeyedWriteQueue();
 
 /**
  * Gets the appropriate store based on environment.
  * Returns IndexedDB store in browser, in-memory store for SSR.
  */
-function getStore(): IndexedDBStore | InMemoryStore {
-  if (isIndexedDBAvailable()) {
-    if (!indexedDBStore) {
-      indexedDBStore = new IndexedDBStore();
-    }
-    return indexedDBStore;
+function getIndexedDBStore(): IndexedDBStore {
+  if (!indexedDBStore) {
+    indexedDBStore = new IndexedDBStore();
   }
+  return indexedDBStore;
+}
 
-  // Fallback for SSR or unsupported browsers
+function getInMemoryStore(): InMemoryStore {
   if (!inMemoryStore) {
     inMemoryStore = new InMemoryStore();
   }
   return inMemoryStore;
+}
+
+function withSessionStorage<T>(
+  persistentOperation: (store: IndexedDBStore) => Promise<T>,
+  ephemeralOperation: (store: InMemoryStore) => Promise<T>
+): Promise<T> {
+  return runWithStorageFallback(
+    () => persistentOperation(getIndexedDBStore()),
+    () => ephemeralOperation(getInMemoryStore())
+  );
 }
 
 /**
@@ -307,60 +367,152 @@ export const sessionStore = {
   /**
    * Saves a session to persistent storage.
    */
-  save: (session: AnalysisSession) => getStore().save(session),
+  save: (session: AnalysisSession) =>
+    runLocalDataMutation(() =>
+      enqueueSessionWrite(session.id, () =>
+        withSessionStorage(
+          async (store) => {
+            await store.save(session);
+            await getInMemoryStore().save(session);
+          },
+          (store) => store.save(session)
+        )
+      )
+    ),
 
   /**
    * Retrieves a session by ID.
    */
-  get: (id: string) => getStore().get(id),
+  get: (id: string) =>
+    runLocalDataMutation(() =>
+      withSessionStorage(
+        async (store) => {
+          const session = await store.get(id);
+          if (session) await getInMemoryStore().save(session);
+          return session;
+        },
+        (store) => store.get(id)
+      )
+    ),
 
   /**
    * Returns all sessions, sorted by most recent first.
    */
-  getAll: () => getStore().getAll(),
+  getAll: () =>
+    runLocalDataMutation(() =>
+      withSessionStorage(
+        async (store) => {
+          const sessions = await store.getAll();
+          await Promise.all(
+            sessions.map((session) => getInMemoryStore().save(session))
+          );
+          return sessions;
+        },
+        (store) => store.getAll()
+      )
+    ),
 
   /**
    * Returns recent sessions (limited for performance).
    */
-  getRecent: (limit?: number) => {
-    const store = getStore();
-    if (store instanceof IndexedDBStore) {
-      return store.getRecent(limit);
-    }
-    return store.getAll().then(sessions => sessions.slice(0, limit ?? 10));
-  },
+  getRecent: (limit?: number) =>
+    runLocalDataMutation(() =>
+      withSessionStorage(
+        async (store) => {
+          const sessions = await store.getRecent(limit);
+          await Promise.all(
+            sessions.map((session) => getInMemoryStore().save(session))
+          );
+          return sessions;
+        },
+        (store) =>
+          store.getAll().then((sessions) => sessions.slice(0, limit ?? 10))
+      )
+    ),
 
   /**
    * Deletes a session by ID.
    */
-  delete: (id: string) => getStore().delete(id),
+  delete: (id: string) =>
+    runLocalDataMutation(() =>
+      enqueueSessionWrite(id, () =>
+        withSessionStorage(
+          async (store) => {
+            const deleted = await store.delete(id);
+            await getInMemoryStore().delete(id);
+            return deleted;
+          },
+          (store) => store.delete(id)
+        )
+      )
+    ),
 
   /**
    * Deletes all sessions (privacy feature).
    */
-  deleteAll: () => getStore().deleteAll(),
+  deleteAll: () =>
+    runLocalDataClear(() =>
+      withSessionStorage(
+        async (store) => {
+          await store.deleteAll();
+          await getInMemoryStore().deleteAll();
+        },
+        (store) => store.deleteAll()
+      )
+    ),
 
   /**
    * Updates a session with partial data.
    */
   update: (id: string, updates: Partial<AnalysisSession>) =>
-    getStore().update(id, updates),
+    runLocalDataMutation(() =>
+      enqueueSessionWrite(id, () =>
+        withSessionStorage(
+          async (store) => {
+            const session = await store.update(id, updates);
+            if (session) await getInMemoryStore().save(session);
+            return session;
+          },
+          (store) => store.update(id, updates)
+        )
+      )
+    ),
+
+  /**
+   * Updates only when the latest stored session still represents the input
+   * that asynchronous work was started for.
+   */
+  updateIf: (
+    id: string,
+    predicate: (session: AnalysisSession) => boolean,
+    updates: Partial<AnalysisSession>
+  ) =>
+    runLocalDataMutation(() =>
+      enqueueSessionWrite(id, () =>
+        withSessionStorage(
+          async (store) => {
+            const session = await store.updateIf(id, predicate, updates);
+            if (session) await getInMemoryStore().save(session);
+            return session;
+          },
+          (store) => store.updateIf(id, predicate, updates)
+        )
+      )
+    ),
 
   /**
    * Returns the number of stored sessions.
    */
-  getCount: async () => {
-    const store = getStore();
-    if (store instanceof IndexedDBStore) {
-      return store.getCount();
-    }
-    return (store as InMemoryStore).count;
-  },
+  getCount: () =>
+    withSessionStorage(
+      (store) => store.getCount(),
+      async (store) => store.count
+    ),
 
   /**
    * Checks if IndexedDB is being used (vs fallback).
    */
-  isUsingIndexedDB: () => isIndexedDBAvailable(),
+  isUsingIndexedDB: () => isPersistentStorageActive(),
 };
 
 // Legacy export for backward compatibility
@@ -372,5 +524,6 @@ export function getSessionStore() {
     delete: sessionStore.delete,
     deleteAll: sessionStore.deleteAll,
     update: sessionStore.update,
+    updateIf: sessionStore.updateIf,
   };
 }

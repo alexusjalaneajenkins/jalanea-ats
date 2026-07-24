@@ -2,31 +2,40 @@
   "name": "jalanea-ats",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:headed": "playwright test --project=chromium --headed",
     "test:e2e:debug": "playwright test --project=chromium --debug",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "check:release": "node scripts/check-release-hygiene.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "audit:prod": "yarn audit --groups dependencies --level high",
+    "verify": "yarn check:release && yarn check:secrets && yarn typecheck && yarn lint && yarn test:unit && yarn build && yarn audit:prod"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@stripe/stripe-js": "^8.7.0",
     "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.89.0",
+    "@supabase/supabase-js": "^2.110.8",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.23.26",
+    "framer-motion": "^12.42.2",
     "idb": "^8.0.3",
     "lucide-react": "^0.562.0",
-    "mammoth": "^1.11.0",
-    "next": "16.1.1",
+    "mammoth": "^1.12.0",
+    "next": "16.2.11",
     "pdfjs-dist": "^5.4.530",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "stripe": "^20.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "stripe": "^20.4.1",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
@@ -36,8 +45,15 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.1",
+    "eslint-config-next": "16.2.11",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "resolutions": {
+    "@xmldom/xmldom": "0.8.13",
+    "postcss": "8.5.22",
+    "sharp": "0.35.3",
+    "underscore": "1.13.8",
+    "ws": "8.21.1"
   }
 }

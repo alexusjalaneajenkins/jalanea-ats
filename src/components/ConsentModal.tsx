@@ -23,6 +23,7 @@ import {
   ConsentAcknowledgments,
   REQUIRED_ACKNOWLEDGMENTS,
 } from '@/lib/llm/types';
+import { Dialog } from '@/components/ui/Dialog';
 
 // ============================================================================
 // Types
@@ -31,7 +32,7 @@ import {
 interface ConsentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConsent: () => void;
+  onConsent: () => void | Promise<void>;
   providerName: string;
 }
 
@@ -53,6 +54,8 @@ export function ConsentModal({
   });
 
   const [currentStep, setCurrentStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Check if all required acknowledgments are accepted
   const allAcknowledged = REQUIRED_ACKNOWLEDGMENTS.every(
@@ -68,10 +71,20 @@ export function ConsentModal({
   };
 
   // Handle consent
-  const handleConsent = () => {
-    if (allAcknowledged) {
-      onConsent();
-      onClose();
+  const handleConsent = async () => {
+    if (!allAcknowledged || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onConsent();
+      handleClose();
+    } catch {
+      setSubmitError(
+        'AI consent could not be saved. Nothing was enabled; please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -84,6 +97,7 @@ export function ConsentModal({
       localStorageOnly: false,
     });
     setCurrentStep(0);
+    setSubmitError(null);
     onClose();
   };
 
@@ -114,11 +128,11 @@ export function ConsentModal({
     },
     {
       icon: Lock,
-      title: 'Your Key Stays Local',
-      description: 'Your API key is stored only in your browser. Jalanea never sees or stores your API key on our servers.',
-      warning: 'Keep your API key secure. Don\'t share it with others.',
+      title: 'How AI Access Works',
+      description: 'Free and paid AI requests use Jalanea\'s server connection to Google Gemini. If you add your own API key, that key is stored only in your browser.',
+      warning: 'Resume and job-description text is processed by Google Gemini, but Jalanea does not store that text on its servers.',
       acknowledgmentKey: 'localStorageOnly' as const,
-      acknowledgmentText: 'I understand my API key is stored locally only',
+      acknowledgmentText: 'I understand how AI requests and API keys are handled',
     },
   ];
 
@@ -126,24 +140,18 @@ export function ConsentModal({
   const StepIcon = currentStepData.icon;
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-          onClick={handleClose}
-        />
-
-        {/* Modal */}
-        <motion.div
+    <Dialog
+      isOpen={isOpen}
+      onClose={() => {
+        if (!isSubmitting) handleClose();
+      }}
+      labelledBy="consent-dialog-title"
+      closeOnBackdrop={!isSubmitting}
+    >
+      <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-xl mx-4 bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden"
+          className="relative w-full max-w-xl bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden"
         >
           {/* Header */}
           <div className="px-6 py-4 border-b border-slate-700/50 bg-slate-800/50">
@@ -153,7 +161,10 @@ export function ConsentModal({
                   <Shield className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2
+                    id="consent-dialog-title"
+                    className="text-lg font-semibold text-white"
+                  >
                     Enable AI Features
                   </h2>
                   <p className="text-sm text-slate-400">
@@ -163,7 +174,9 @@ export function ConsentModal({
               </div>
               <button
                 onClick={handleClose}
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
+                disabled={isSubmitting}
+                aria-label="Close AI consent dialog"
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -180,14 +193,22 @@ export function ConsentModal({
                   <button
                     key={index}
                     onClick={() => setCurrentStep(index)}
-                    className={`flex-1 h-2 rounded-full transition-colors ${
-                      isCompleted
-                        ? 'bg-emerald-500'
-                        : isCurrent
-                        ? 'bg-amber-500'
-                        : 'bg-slate-700'
-                    }`}
-                  />
+                    disabled={isSubmitting}
+                    aria-label={`Review consent step ${index + 1}: ${step.title}`}
+                    aria-current={isCurrent ? 'step' : undefined}
+                    className="flex min-h-11 flex-1 items-center disabled:cursor-not-allowed"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-full rounded-full transition-colors ${
+                        isCompleted
+                          ? 'bg-emerald-500'
+                          : isCurrent
+                            ? 'bg-amber-500'
+                            : 'bg-slate-700'
+                      }`}
+                    />
+                  </button>
                 );
               })}
             </div>
@@ -235,11 +256,15 @@ export function ConsentModal({
                 {/* Acknowledgment Checkbox */}
                 <button
                   onClick={() => toggleAcknowledgment(currentStepData.acknowledgmentKey)}
+                  disabled={isSubmitting}
+                  aria-pressed={
+                    acknowledgments[currentStepData.acknowledgmentKey]
+                  }
                   className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
                     acknowledgments[currentStepData.acknowledgmentKey]
                       ? 'border-emerald-500/50 bg-emerald-500/10'
                       : 'border-slate-700 hover:border-slate-600 bg-slate-800/30'
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-70`}
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -274,7 +299,7 @@ export function ConsentModal({
               {/* Back Button */}
               <button
                 onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
-                disabled={currentStep === 0}
+                disabled={currentStep === 0 || isSubmitting}
                 className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Back
@@ -284,7 +309,10 @@ export function ConsentModal({
               {currentStep < steps.length - 1 ? (
                 <button
                   onClick={() => setCurrentStep(currentStep + 1)}
-                  disabled={!acknowledgments[currentStepData.acknowledgmentKey]}
+                  disabled={
+                    !acknowledgments[currentStepData.acknowledgmentKey]
+                    || isSubmitting
+                  }
                   className="px-6 py-2 text-sm font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   Next
@@ -293,14 +321,21 @@ export function ConsentModal({
               ) : (
                 <button
                   onClick={handleConsent}
-                  disabled={!allAcknowledged}
+                  disabled={!allAcknowledged || isSubmitting}
+                  aria-busy={isSubmitting}
                   className="px-6 py-2 text-sm font-medium bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   <Check className="w-4 h-4" />
-                  Enable AI Features
+                  {isSubmitting ? 'Saving Consent…' : 'Enable AI Features'}
                 </button>
               )}
             </div>
+
+            {submitError && (
+              <p role="alert" className="mt-4 text-center text-sm text-red-300">
+                {submitError}
+              </p>
+            )}
 
             {/* Summary of acknowledgments */}
             <div className="mt-4 flex items-center justify-center gap-2">
@@ -321,10 +356,8 @@ export function ConsentModal({
               </span>
             </div>
           </div>
-        </motion.div>
-      </div>
-      )}
-    </AnimatePresence>
+      </motion.div>
+    </Dialog>
   );
 }
 

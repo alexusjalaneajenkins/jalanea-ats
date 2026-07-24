@@ -6,6 +6,7 @@
  */
 
 import type { TargetingArtifact } from './targeting';
+import type { PersistedExternalAnalysis } from '@/lib/analysis/externalAnalysis';
 
 /**
  * The primary object representing a complete analysis session.
@@ -35,6 +36,8 @@ export type AnalysisSession = {
   exports?: ExportArtifact[];
   /** Guided resume targeting workflow state */
   targeting?: TargetingArtifact;
+  /** Last completed external analysis, tied to an exact input revision */
+  externalAnalysis?: PersistedExternalAnalysis;
 };
 
 /**

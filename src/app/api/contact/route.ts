@@ -1,172 +1,101 @@
-/**
- * Contact Form API
- *
- * Sends contact form submissions via Resend to support email.
- */
+import {
+  escapeContactHtml,
+  handleContactRequest,
+  type ContactProviderInput,
+} from '@/lib/contact/contactRequest';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
-import { NextResponse } from 'next/server';
+export const maxDuration = 15;
+export const dynamic = 'force-dynamic';
 
-// Rate limiting: simple in-memory store (resets on deploy)
-const submissions = new Map<string, number[]>();
-const RATE_LIMIT = 5; // max submissions per IP
-const RATE_WINDOW = 60 * 60 * 1000; // 1 hour in ms
+const RESEND_USER_AGENT =
+  'Jalanea-ATS/1.0 (+https://ats.jalanea.dev)';
 
-const HTML_ESCAPE_MAP: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
+function createEmailBody(input: ContactProviderInput) {
+  const safeName = escapeContactHtml(input.name);
+  const safeEmail = escapeContactHtml(input.email);
+  const safeSubject = escapeContactHtml(input.subject);
+  const safeMessage = escapeContactHtml(input.message).replace(
+    /\n/g,
+    '<br />'
+  );
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char]);
-}
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = submissions.get(ip) || [];
-
-  // Filter to only recent submissions
-  const recent = timestamps.filter(t => now - t < RATE_WINDOW);
-  submissions.set(ip, recent);
-
-  return recent.length >= RATE_LIMIT;
-}
-
-function recordSubmission(ip: string): void {
-  const timestamps = submissions.get(ip) || [];
-  timestamps.push(Date.now());
-  submissions.set(ip, timestamps);
+  return {
+    from: process.env.CONTACT_FROM_EMAIL!,
+    to: [process.env.CONTACT_TO_EMAIL!],
+    reply_to: input.email,
+    subject: input.subject
+      ? `[Contact] ${input.subject}`
+      : `[Contact] Message from ${input.name}`,
+    html: `
+      <h2>New Jalanea ATS contact request</h2>
+      <p><strong>From:</strong> ${safeName} (${safeEmail})</p>
+      ${safeSubject ? `<p><strong>Subject:</strong> ${safeSubject}</p>` : ''}
+      <hr />
+      <p>${safeMessage}</p>
+      <hr />
+      <p style="color: #666; font-size: 12px;">
+        Submitted through the Jalanea ATS contact form.
+      </p>
+    `,
+    text: [
+      'New Jalanea ATS contact request',
+      '',
+      `From: ${input.name} (${input.email})`,
+      input.subject ? `Subject: ${input.subject}` : '',
+      '',
+      input.message,
+      '',
+      '---',
+      'Submitted through the Jalanea ATS contact form.',
+    ].filter((line, index, lines) => line || lines[index - 1] !== '').join('\n'),
+  };
 }
 
 export async function POST(request: Request) {
-  try {
-    // Get client IP for rate limiting
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  return handleContactRequest(request, {
+    configuration: {
+      rateLimitSecret: process.env.CONTACT_RATE_LIMIT_SECRET,
+      resendApiKey: process.env.RESEND_API_KEY,
+      fromEmail: process.env.CONTACT_FROM_EMAIL,
+      toEmail: process.env.CONTACT_TO_EMAIL,
+    },
+    async consumeRateLimit({ bucket, windowStart, limit }) {
+      const supabase = createServiceRoleClient();
+      const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
+        p_bucket: bucket,
+        p_window_start: windowStart,
+        p_limit: limit,
+      });
+      if (error) throw new Error('contact_rate_limit_failed');
 
-    if (isRateLimited(ip)) {
-      return NextResponse.json(
-        { error: 'Too many submissions. Please try again later.' },
-        { status: 429 }
-      );
-    }
-
-    const { name, email, subject, message } = await request.json();
-
-    // Validate required fields
-    if (
-      typeof name !== 'string' ||
-      typeof email !== 'string' ||
-      typeof message !== 'string' ||
-      !name.trim() ||
-      !email.trim() ||
-      !message.trim()
-    ) {
-      return NextResponse.json(
-        { error: 'Name, email, and message are required' },
-        { status: 400 }
-      );
-    }
-
-    const normalizedName = name.trim();
-    const normalizedEmail = email.trim();
-    const normalizedMessage = message.trim();
-    const normalizedSubject =
-      typeof subject === 'string'
-        ? subject.replace(/[\r\n]+/g, ' ').trim()
-        : '';
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(normalizedEmail)) {
-      return NextResponse.json(
-        { error: 'Invalid email address' },
-        { status: 400 }
-      );
-    }
-
-    // Sanitize untrusted values before interpolating into HTML.
-    const safeName = escapeHtml(normalizedName);
-    const safeEmail = escapeHtml(normalizedEmail);
-    const safeSubject = escapeHtml(normalizedSubject);
-    const safeMessageHtml = escapeHtml(normalizedMessage).replace(/\n/g, '<br />');
-
-    const supportEmail = process.env.CONTACT_TO_EMAIL || 'support-ats@jalanea.dev';
-    const senderEmail =
-      process.env.CONTACT_FROM_EMAIL || 'Jalanea ATS <onboarding@resend.dev>';
-
-    // Check for Resend API key
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (!resendApiKey) {
-      console.error('RESEND_API_KEY not configured');
-      return NextResponse.json(
-        {
-          error: `Contact form is not configured yet. Please email ${supportEmail} directly.`,
+      const result = Array.isArray(data) ? data[0] : data;
+      if (!result || typeof result.allowed !== 'boolean') {
+        throw new Error('contact_rate_limit_invalid');
+      }
+      return result.allowed;
+    },
+    async sendEmail(input, signal) {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY!}`,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': input.idempotencyKey,
+          'User-Agent': RESEND_USER_AGENT,
         },
-        { status: 503 }
-      );
-    }
+        body: JSON.stringify(createEmailBody(input)),
+        cache: 'no-store',
+        signal,
+      });
 
-    // Send email via Resend
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: senderEmail,
-        to: [supportEmail],
-        reply_to: normalizedEmail,
-        subject: normalizedSubject
-          ? `[Contact] ${normalizedSubject}`
-          : `[Contact] Message from ${normalizedName}`,
-        html: `
-          <h2>New Contact Form Submission</h2>
-          <p><strong>From:</strong> ${safeName} (${safeEmail})</p>
-          ${safeSubject ? `<p><strong>Subject:</strong> ${safeSubject}</p>` : ''}
-          <hr />
-          <p>${safeMessageHtml}</p>
-          <hr />
-          <p style="color: #666; font-size: 12px;">
-            This message was sent via the Jalanea ATS contact form.<br />
-            Reply directly to this email to respond to ${safeName}.
-          </p>
-        `,
-        text: `
-New Contact Form Submission
-
-From: ${normalizedName} (${normalizedEmail})
-${normalizedSubject ? `Subject: ${normalizedSubject}` : ''}
-
-${normalizedMessage}
-
----
-This message was sent via the Jalanea ATS contact form.
-Reply directly to this email to respond to ${normalizedName}.
-        `.trim(),
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Resend API error:', response.status, errorText);
-      return NextResponse.json(
-        { error: 'Failed to send message. Please try again.' },
-        { status: 500 }
-      );
-    }
-
-    // Record successful submission for rate limiting
-    recordSubmission(ip);
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Contact form error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred. Please try again.' },
-      { status: 500 }
-    );
-  }
+      return {
+        accepted: response.ok,
+        status: response.status,
+      };
+    },
+    logFailure(event, metadata) {
+      console.error('Contact submission failed', { event, ...metadata });
+    },
+  });
 }

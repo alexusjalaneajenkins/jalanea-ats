@@ -57,7 +57,7 @@ export function KnockoutChecklist({
               No Disqualifiers Detected
             </h3>
             <p className="text-sm text-indigo-300 mt-1">
-              This job posting doesn't appear to have hard requirements like
+              This job posting doesn&apos;t appear to have hard requirements like
               specific work authorization, certifications, or location
               restrictions.
             </p>
@@ -146,7 +146,7 @@ export function KnockoutChecklist({
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full bg-red-500" />
-            <span>You don't qualify</span>
+            <span>You don&apos;t qualify</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full bg-indigo-500" />
@@ -203,7 +203,7 @@ function KnockoutItemRow({
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-white">{label}</p>
-          <p className="text-xs text-indigo-400 mt-1 italic truncate">"{evidence}"</p>
+          <p className="text-xs text-indigo-400 mt-1 italic truncate">&ldquo;{evidence}&rdquo;</p>
 
           {/* Auto-assessment hint */}
           {enhanced?.autoAssessment && showAutoAssessment && userConfirmed === undefined && (

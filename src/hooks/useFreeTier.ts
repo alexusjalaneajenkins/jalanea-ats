@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { GeminiModel } from '@/lib/llm/types';
+import type { FreeTierAnalysisResult } from '@/lib/analysis/externalAnalysis';
 
 export interface FreeTierStatus {
   enabled: boolean;
@@ -18,38 +19,19 @@ export interface FreeTierStatus {
   resetAt: string;
 }
 
-export interface FreeTierAnalysisResult {
-  score: number;
-  summary: string;
-  strengths: string[];
-  gaps: string[];
-  recommendations: string[];
-  keywordMatches: {
-    found: string[];
-    missing: string[];
-    matchRate: number;
-  };
-  sections: {
-    name: string;
-    score: number;
-    feedback: string;
-  }[];
-  formatting: {
-    issues: string[];
-    suggestions: string[];
-  };
-  overallSuggestions: string[];
-  _freeTier?: {
-    remaining: number;
-    resetAt: string;
-  };
-}
+export type { FreeTierAnalysisResult } from '@/lib/analysis/externalAnalysis';
 
 export interface UseFreeTierReturn {
   status: FreeTierStatus | null;
   isLoading: boolean;
   error: string | null;
-  analyze: (resume: string, jobDescription: string, model?: GeminiModel) => Promise<FreeTierAnalysisResult>;
+  analyze: (
+    resume: string,
+    jobDescription: string,
+    consentGranted: boolean,
+    model?: GeminiModel,
+    signal?: AbortSignal
+  ) => Promise<FreeTierAnalysisResult>;
   refresh: () => Promise<void>;
 }
 
@@ -105,16 +87,24 @@ export function useFreeTier(): UseFreeTierReturn {
   const analyze = useCallback(async (
     resume: string,
     jobDescription: string,
-    model?: GeminiModel
+    consentGranted: boolean,
+    model?: GeminiModel,
+    signal?: AbortSignal
   ): Promise<FreeTierAnalysisResult> => {
     setError(null);
+
+    if (!consentGranted) {
+      throw new Error('AI data-sharing consent is required');
+    }
 
     const response = await fetch('/api/analyze-free', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-AI-Consent': 'acknowledged',
       },
       body: JSON.stringify({ resume, jobDescription, model }),
+      signal,
     });
 
     const data = await response.json();

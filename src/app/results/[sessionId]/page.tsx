@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -45,9 +45,13 @@ import { useProgress } from '@/hooks/useProgress';
 import { useFreeTier, FreeTierAnalysisResult } from '@/hooks/useFreeTier';
 import { useV2Analysis } from '@/hooks/useV2Analysis';
 import { useAuth } from '@/hooks/useAuth';
-import { LlmConfig } from '@/lib/llm/types';
+import { LlmConfig, isAbortError } from '@/lib/llm/types';
 import { V2ResultsPanel } from '@/components/V2ResultsPanel';
+import { createAnalysisInputRevision } from '@/lib/analysis/inputRevision';
+import type { PersistedExternalAnalysis } from '@/lib/analysis/externalAnalysis';
 import type { V2AnalysisResult } from '@/lib/v2';
+import { Dialog } from '@/components/ui/Dialog';
+import { hasVerifiedPaidAccess } from '@/lib/analysis/availability';
 
 /**
  * Extracts a job title from job description text
@@ -149,18 +153,55 @@ export default function ResultsPage() {
   }, []);
 
   // BYOK (AI Features) state
-  const { config: llmConfig, updateConfig, setConsent } = useLlmConfig();
+  const {
+    user,
+    hasAccess,
+    isAuthLoading,
+    isEntitlementLoading,
+    accessError,
+  } = useAuth();
+  const {
+    config: llmConfig,
+    isLoading: isLlmConfigLoading,
+    updateConfig,
+    setConsent,
+  } = useLlmConfig(
+    user?.id ?? null
+  );
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [hasPendingAiAnalysis, setHasPendingAiAnalysis] = useState(false);
 
   // Free tier state
   const freeTier = useFreeTier();
+  const analyzeFree = freeTier.analyze;
   const [freeTierResult, setFreeTierResult] = useState<FreeTierAnalysisResult | null>(null);
   const [isFreeTierAnalyzing, setIsFreeTierAnalyzing] = useState(false);
   const [freeTierError, setFreeTierError] = useState<string | null>(null);
 
   // V2 Engine state
   const v2 = useV2Analysis();
+  const analyzeV2 = v2.analyze;
+  const abortV2 = v2.abort;
+  const resetV2 = v2.reset;
+  const restoreV2 = v2.restore;
+  const inputVersionRef = useRef(0);
+  const semanticRequestRef = useRef<AbortController | null>(null);
+  const externalRequestRef = useRef<{
+    inputRevision: string;
+    controller: AbortController;
+    promise: Promise<void>;
+    isPaid: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      semanticRequestRef.current?.abort();
+      semanticRequestRef.current = null;
+      externalRequestRef.current?.controller.abort();
+      externalRequestRef.current = null;
+    };
+  }, []);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -170,9 +211,30 @@ export default function ResultsPage() {
 
   // Progress tracking
   const { saveSession } = useProgress();
-  const { user, hasAccess, isLoading: isAuthLoading } = useAuth();
-  const canUseByok = !!user && hasAccess;
+  const hasVerifiedAccess = hasVerifiedPaidAccess({
+    hasAccess,
+    isEntitlementLoading,
+    accessError,
+  });
+  const canUseByok = !!user && hasVerifiedAccess;
   const hasByokConfigured = canUseByok && !!(llmConfig?.apiKey && llmConfig?.hasConsented);
+  const verifiedPaidAccessRef = useRef(false);
+  verifiedPaidAccessRef.current = Boolean(user && hasVerifiedAccess);
+
+  useEffect(() => {
+    if (verifiedPaidAccessRef.current) return;
+
+    semanticRequestRef.current?.abort();
+    semanticRequestRef.current = null;
+    setIsAnalyzingSemantic(false);
+    setSemanticMatch(null);
+
+    if (externalRequestRef.current?.isPaid) {
+      externalRequestRef.current.controller.abort();
+      externalRequestRef.current = null;
+    }
+    resetV2();
+  }, [hasVerifiedAccess, resetV2, user]);
 
   // Handle LLM config save
   const handleSaveLlmConfig = async (newConfig: LlmConfig) => {
@@ -180,8 +242,6 @@ export default function ResultsPage() {
       ? {
           ...newConfig,
           apiKey: '',
-          hasConsented: false,
-          consentTimestamp: undefined,
         }
       : newConfig;
 
@@ -192,49 +252,213 @@ export default function ResultsPage() {
     }
   };
 
-  // Handle consent
-  const handleConsent = async () => {
-    await setConsent(true);
-  };
+  const runExternalAiAnalysis = useCallback(async (consentGranted: boolean) => {
+    if (!session || !jobText.trim() || !consentGranted) return;
 
-  // Enforce hard gate: clear BYOK key if user is not authenticated with active subscription.
-  useEffect(() => {
-    if (isAuthLoading || canUseByok || !llmConfig) return;
-    if (!llmConfig.apiKey && !llmConfig.hasConsented) return;
-
-    void updateConfig({
-      ...llmConfig,
-      apiKey: '',
-      hasConsented: false,
-      consentTimestamp: undefined,
-    });
-  }, [isAuthLoading, canUseByok, llmConfig, updateConfig]);
-
-  // Handle free tier analysis (called as part of combined analysis)
-  const runFreeTierAnalysis = useCallback(async () => {
-    if (!session || !jobText.trim()) return;
-
-    // If user has their own API key, skip free tier (BYOK handles it)
-    if (hasByokConfigured) {
-      console.log('User has API key, using BYOK instead of free tier');
+    if (user && (isEntitlementLoading || accessError)) {
+      setFreeTierError(
+        accessError
+          ? 'We could not verify your subscription. Try again shortly.'
+          : 'Checking your subscription before analysis.'
+      );
       return;
     }
 
-    // Call the free tier API - let the server handle rate limiting
-    setIsFreeTierAnalyzing(true);
+    const inputVersion = inputVersionRef.current;
+    const resumeText = session.resume.extractedText;
+    const analyzedJobText = jobText;
+    const usePaidAnalysis = Boolean(user && hasVerifiedAccess);
+    const inputRevision = await createAnalysisInputRevision(
+      resumeText,
+      analyzedJobText
+    );
+
+    if (
+      inputVersionRef.current !== inputVersion ||
+      (usePaidAnalysis && !verifiedPaidAccessRef.current)
+    ) {
+      return;
+    }
+
+    const existingRequest = externalRequestRef.current;
+    if (existingRequest?.inputRevision === inputRevision) {
+      return existingRequest.promise;
+    }
+
+    existingRequest?.controller.abort();
+    abortV2();
+    const controller = new AbortController();
     setFreeTierError(null);
     setFreeTierResult(null);
-
-    try {
-      const result = await freeTier.analyze(session.resume.extractedText, jobText);
-      setFreeTierResult(result);
-    } catch (err) {
-      console.error('Free tier analysis error:', err);
-      setFreeTierError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setIsFreeTierAnalyzing(false);
+    if (!usePaidAnalysis) {
+      setIsFreeTierAnalyzing(true);
     }
-  }, [session, jobText, freeTier, hasByokConfigured]);
+
+    const requestPromise = (async () => {
+      try {
+        const result = usePaidAnalysis
+          ? await analyzeV2(
+              resumeText,
+              analyzedJobText,
+              consentGranted,
+              inputRevision
+            )
+          : await analyzeFree(
+              resumeText,
+              analyzedJobText,
+              consentGranted,
+              undefined,
+              controller.signal
+            );
+
+        if (
+          !result ||
+          controller.signal.aborted ||
+          inputVersionRef.current !== inputVersion ||
+          (usePaidAnalysis && !verifiedPaidAccessRef.current)
+        ) {
+          return;
+        }
+
+        if (!usePaidAnalysis) {
+          setFreeTierResult(result as FreeTierAnalysisResult);
+        }
+
+        const persistedAnalysis: PersistedExternalAnalysis = usePaidAnalysis
+          ? {
+              version: 1,
+              inputRevision,
+              completedAt: new Date().toISOString(),
+              mode: 'paid-v2',
+              result: result as V2AnalysisResult,
+            }
+          : {
+              version: 1,
+              inputRevision,
+              completedAt: new Date().toISOString(),
+              mode: 'free',
+              result: result as FreeTierAnalysisResult,
+            };
+
+        const persistedSession = await sessionStore.updateIf(
+          session.id,
+          (storedSession) =>
+            storedSession.job?.rawText === analyzedJobText,
+          {
+            externalAnalysis: persistedAnalysis,
+          }
+        );
+        if (
+          !persistedSession ||
+          controller.signal.aborted ||
+          inputVersionRef.current !== inputVersion ||
+          (usePaidAnalysis && !verifiedPaidAccessRef.current)
+        ) {
+          return;
+        }
+
+        setSession((previous) =>
+          previous?.job?.rawText === analyzedJobText
+            ? { ...previous, externalAnalysis: persistedAnalysis }
+            : previous
+        );
+      } catch (requestError) {
+        if (controller.signal.aborted) return;
+        const message =
+          requestError instanceof Error
+            ? requestError.message
+            : 'Analysis failed';
+        setFreeTierError(message);
+        console.error('External analysis request failed', {
+          name:
+            requestError instanceof Error
+              ? requestError.name
+              : 'UnknownError',
+        });
+      } finally {
+        if (
+          externalRequestRef.current?.inputRevision === inputRevision
+        ) {
+          externalRequestRef.current = null;
+          setIsFreeTierAnalyzing(false);
+        }
+      }
+    })();
+
+    externalRequestRef.current = {
+      inputRevision,
+      controller,
+      promise: requestPromise,
+      isPaid: usePaidAnalysis,
+    };
+    return requestPromise;
+  }, [
+    abortV2,
+    accessError,
+    analyzeFree,
+    analyzeV2,
+    hasVerifiedAccess,
+    isEntitlementLoading,
+    jobText,
+    session,
+    user,
+  ]);
+
+  const handleConsent = async () => {
+    await setConsent(true);
+
+    if (hasPendingAiAnalysis) {
+      setHasPendingAiAnalysis(false);
+      await runExternalAiAnalysis(true);
+    }
+  };
+
+  const requestExternalAiAnalysis = useCallback(async () => {
+    if (!llmConfig?.hasConsented) {
+      setHasPendingAiAnalysis(true);
+      setShowConsentModal(true);
+      return;
+    }
+
+    await runExternalAiAnalysis(true);
+  }, [llmConfig?.hasConsented, runExternalAiAnalysis]);
+
+  const handleJobTextChange = useCallback((nextJobText: string) => {
+    inputVersionRef.current += 1;
+    semanticRequestRef.current?.abort();
+    semanticRequestRef.current = null;
+    setIsAnalyzingSemantic(false);
+    externalRequestRef.current?.controller.abort();
+    externalRequestRef.current = null;
+    resetV2();
+    setJobText(nextJobText);
+    setKeywords(null);
+    setKnockouts([]);
+    setCoverage(null);
+    setKnockoutRisk(null);
+    setRecruiterSearch(null);
+    setSemanticMatch(null);
+    setFreeTierResult(null);
+    setFreeTierError(null);
+    setIsFreeTierAnalyzing(false);
+    setPendingTargeting(null);
+    setHasPendingAiAnalysis(false);
+    setSession((previous) =>
+      previous
+        ? {
+            ...previous,
+            job: undefined,
+            targeting: undefined,
+            externalAnalysis: undefined,
+          }
+        : previous
+    );
+    void sessionStore.update(sessionId, {
+      job: undefined,
+      targeting: undefined,
+      externalAnalysis: undefined,
+    });
+  }, [resetV2, sessionId]);
 
   const buildJobArtifact = useCallback((
     rawText: string,
@@ -341,19 +565,42 @@ export default function ResultsPage() {
     );
     setKnockoutRisk(calculateKnockoutRisk(restoredKnockouts));
     setIsJobInputExpanded(true);
+
   }, [coverage, jobText, session]);
 
-  // Handle Escape key for modal
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showHistory) {
-        setShowHistory(false);
-      }
-    };
+    if (
+      !session?.job ||
+      !session.externalAnalysis ||
+      jobText !== session.job.rawText
+    ) {
+      return;
+    }
 
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [showHistory]);
+    let cancelled = false;
+    void createAnalysisInputRevision(
+      session.resume.extractedText,
+      session.job.rawText
+    ).then((inputRevision) => {
+      if (
+        cancelled ||
+        session.externalAnalysis?.inputRevision !== inputRevision
+      ) {
+        return;
+      }
+
+      if (session.externalAnalysis.mode === 'paid-v2') {
+        if (!verifiedPaidAccessRef.current) return;
+        restoreV2(session.externalAnalysis.result, inputRevision);
+      } else {
+        setFreeTierResult(session.externalAnalysis.result);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasVerifiedAccess, jobText, restoreV2, session, user]);
 
   // Run resume analysis (memoized)
   const analysis = useMemo(() => {
@@ -366,6 +613,14 @@ export default function ResultsPage() {
     if (!session || !analysis) return null;
     return {
       ...session,
+      externalAnalysis:
+        session.job?.rawText === jobText &&
+        (
+          session.externalAnalysis?.mode !== 'paid-v2' ||
+          Boolean(user && hasVerifiedAccess)
+        )
+          ? session.externalAnalysis
+          : undefined,
       findings: analysis.findings,
       scores: {
         ...analysis.scores,
@@ -380,34 +635,49 @@ export default function ResultsPage() {
           }
         : undefined,
     };
-  }, [session, analysis, coverage, knockoutRisk, jobText, keywords, knockouts]);
+  }, [
+    session,
+    analysis,
+    coverage,
+    knockoutRisk,
+    jobText,
+    keywords,
+    knockouts,
+    hasVerifiedAccess,
+    user,
+  ]);
 
   // Analyze job description
   const handleAnalyzeJD = useCallback(async () => {
     if (!session || !jobText.trim()) return;
 
+    semanticRequestRef.current?.abort();
+    semanticRequestRef.current = null;
+    setIsAnalyzingSemantic(false);
+    const inputVersion = inputVersionRef.current;
+    const analyzedJobText = jobText;
     setIsAnalyzingJD(true);
     setSemanticMatch(null);
 
     try {
       // Extract keywords
-      const extractedKeywords = extractKeywords(jobText);
+      const extractedKeywords = extractKeywords(analyzedJobText);
       setKeywords(extractedKeywords);
 
       // Detect knockouts and enhance with resume analysis
-      const detectedKnockouts = detectKnockouts(jobText);
+      const detectedKnockouts = detectKnockouts(analyzedJobText);
 
       // Enhance knockouts with auto-assessment based on resume
       const enhancedKnockouts = enhanceKnockoutsWithResume(
         detectedKnockouts,
         session.resume.extractedText,
-        jobText
+        analyzedJobText
       );
 
       // Check for experience requirement knockout
       const experienceKnockout = detectExperienceKnockout(
         session.resume.extractedText,
-        jobText
+        analyzedJobText
       );
 
       // Combine all knockouts
@@ -427,7 +697,7 @@ export default function ResultsPage() {
       // Calculate recruiter search score
       const recruiterSearchResult = calculateRecruiterSearch(
         session.resume.extractedText,
-        jobText,
+        analyzedJobText,
         extractedKeywords
       );
       setRecruiterSearch(recruiterSearchResult);
@@ -436,31 +706,77 @@ export default function ResultsPage() {
       const riskResult = calculateKnockoutRisk(allKnockouts);
       setKnockoutRisk(riskResult);
 
-      const nextJobArtifact = buildJobArtifact(jobText, extractedKeywords, allKnockouts);
+      const nextJobArtifact = buildJobArtifact(
+        analyzedJobText,
+        extractedKeywords,
+        allKnockouts
+      );
       if (nextJobArtifact) {
-        setSession((prev) => (prev ? { ...prev, job: nextJobArtifact } : prev));
-        void sessionStore.update(session.id, { job: nextJobArtifact });
+        setSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                job: nextJobArtifact,
+                targeting: undefined,
+                externalAnalysis: undefined,
+              }
+            : prev
+        );
+        await sessionStore.update(session.id, {
+          job: nextJobArtifact,
+          targeting: undefined,
+          externalAnalysis: undefined,
+        });
       }
+
+      if (inputVersionRef.current !== inputVersion) return;
 
       let semanticScore: number | undefined;
 
       // Calculate semantic match if BYOK is configured
-      if (hasByokConfigured && llmConfig && isSemanticMatchAvailable(llmConfig)) {
+      if (
+        hasByokConfigured &&
+        verifiedPaidAccessRef.current &&
+        llmConfig &&
+        isSemanticMatchAvailable(llmConfig)
+      ) {
+        const semanticController = new AbortController();
+        semanticRequestRef.current = semanticController;
         setIsAnalyzingSemantic(true);
         try {
           const semanticResult = await calculateSemanticMatch(
             session.resume.extractedText,
-            jobText,
-            llmConfig
+            analyzedJobText,
+            llmConfig,
+            semanticController.signal
           );
-          setSemanticMatch(semanticResult);
-          semanticScore = semanticResult.success ? semanticResult.score : undefined;
+          if (
+            !semanticController.signal.aborted &&
+            verifiedPaidAccessRef.current &&
+            inputVersionRef.current === inputVersion
+          ) {
+            setSemanticMatch(semanticResult);
+            semanticScore = semanticResult.success
+              ? semanticResult.score
+              : undefined;
+          }
         } catch (err) {
+          if (isAbortError(err, semanticController.signal)) return;
           console.error('Error calculating semantic match:', err);
         } finally {
-          setIsAnalyzingSemantic(false);
+          if (semanticRequestRef.current === semanticController) {
+            semanticRequestRef.current = null;
+          }
+          if (
+            !semanticController.signal.aborted &&
+            inputVersionRef.current === inputVersion
+          ) {
+            setIsAnalyzingSemantic(false);
+          }
         }
       }
+
+      if (inputVersionRef.current !== inputVersion) return;
 
       // Switch to job match tab
       setActiveTab('jobmatch');
@@ -471,9 +787,9 @@ export default function ResultsPage() {
       }
 
       // Save/update history entry with job match data
-      const jobMeta: JobMetadata | undefined = jobText.trim()
+      const jobMeta: JobMetadata | undefined = analyzedJobText.trim()
         ? {
-            title: extractJobTitle(jobText),
+            title: extractJobTitle(analyzedJobText),
             company: vendorResult?.vendor ? extractCompanyFromVendor(jobUrl) : undefined,
             url: jobUrl || undefined,
             atsVendor: vendorResult?.vendor || undefined,
@@ -490,19 +806,26 @@ export default function ResultsPage() {
         jobMeta,
       });
 
-      // Run free tier AI analysis - AWAIT it so user sees full loading state
-      await runFreeTierAnalysis();
-
-      // Run V2 engine analysis in parallel (non-blocking)
-      v2.analyze(session.resume.extractedText, jobText).catch(err => {
-        console.error('V2 analysis background error:', err);
-      });
+      if (inputVersionRef.current !== inputVersion) return;
+      await requestExternalAiAnalysis();
     } catch (err) {
       console.error('Error analyzing job description:', err);
     } finally {
       setIsAnalyzingJD(false);
     }
-  }, [session, jobText, llmConfig, vendorResult, jobUrl, runFreeTierAnalysis, hasByokConfigured, analysis?.scores.parseHealth, saveHistoryEntry, buildJobArtifact, v2]);
+  }, [
+    analysis?.scores.parseHealth,
+    buildJobArtifact,
+    hasByokConfigured,
+    jobText,
+    jobUrl,
+    llmConfig,
+    requestExternalAiAnalysis,
+    saveHistoryEntry,
+    saveSession,
+    session,
+    vendorResult,
+  ]);
 
   // Handle knockout confirmation change
   const handleKnockoutChange = useCallback(
@@ -874,17 +1197,24 @@ export default function ResultsPage() {
               <div className="mt-4">
                 <JobDescriptionInput
                   jobText={jobText}
-                  onJobTextChange={setJobText}
+                  onJobTextChange={handleJobTextChange}
                   jobUrl={jobUrl}
                   onJobUrlChange={handleJobUrlChange}
                   vendorResult={vendorResult}
                   onAnalyze={handleAnalyzeJD}
-                  isLoading={isAnalyzingJD}
+                  isLoading={
+                    isAnalyzingJD ||
+                    isFreeTierAnalyzing ||
+                    v2.isAnalyzing
+                  }
                   hasResume={true}
-                  hasApiKey={hasByokConfigured}
                   onOpenApiKeyModal={() => setShowKeyModal(true)}
                   freeTierStatus={freeTier.status}
                   freeTierLoading={freeTier.isLoading}
+                  isSignedIn={Boolean(user)}
+                  hasPaidAccess={Boolean(user && hasVerifiedAccess)}
+                  entitlementLoading={Boolean(user && isEntitlementLoading)}
+                  entitlementError={Boolean(user && accessError)}
                 />
               </div>
             )}
@@ -1050,6 +1380,7 @@ export default function ResultsPage() {
                   knockouts={knockouts}
                   keywords={keywords}
                   llmConfig={hasByokConfigured ? llmConfig : null}
+                  hasAiConsent={Boolean(llmConfig?.hasConsented)}
                   resumeFileName={resume.fileName}
                   resumeText={resume.extractedText}
                   jobDescriptionText={jobText}
@@ -1063,7 +1394,7 @@ export default function ResultsPage() {
                   freeTierResult={freeTierResult}
                   isFreeTierAnalyzing={isFreeTierAnalyzing}
                   freeTierError={freeTierError}
-                  onFreeTierAnalyze={runFreeTierAnalysis}
+                  onFreeTierAnalyze={requestExternalAiAnalysis}
                   initialTargeting={session.targeting || null}
                   onTargetingArtifactChange={setPendingTargeting}
                 />
@@ -1116,7 +1447,7 @@ export default function ResultsPage() {
           className="mt-10 text-center text-xs text-indigo-400 flex items-center justify-center gap-2"
         >
           <Shield className="w-4 h-4" />
-          <span>Your data stays in your browser. Nothing was uploaded to our servers.</span>
+          <span>File parsing stays in your browser. AI features send resume text to Google Gemini only after you consent.</span>
         </motion.div>
       </main>
 
@@ -1127,35 +1458,29 @@ export default function ResultsPage() {
         onSave={handleSaveLlmConfig}
         currentConfig={llmConfig || undefined}
         isAuthenticated={!!user}
-        hasActiveSubscription={hasAccess}
-        isAuthLoading={isAuthLoading}
+        hasActiveSubscription={canUseByok}
+        isAuthLoading={isAuthLoading || isEntitlementLoading}
+        isConfigLoading={isLlmConfigLoading}
       />
 
       <ConsentModal
         isOpen={showConsentModal}
-        onClose={() => setShowConsentModal(false)}
+        onClose={() => {
+          setShowConsentModal(false);
+          setHasPendingAiAnalysis(false);
+        }}
         onConsent={handleConsent}
         providerName={llmConfig?.provider === 'gemini' ? 'Google Gemini' : 'the AI provider'}
       />
 
       {/* History Modal */}
-      {showHistory && (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="history-modal-title"
-        >
-          <div className="min-h-screen px-4 py-8">
-            {/* Backdrop */}
-            <div
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setShowHistory(false)}
-              aria-hidden="true"
-            />
-
-            {/* Modal Content */}
-            <div className="relative z-10 max-w-4xl mx-auto">
+      <Dialog
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        labelledBy="history-modal-title"
+      >
+          <div className="min-h-[100dvh] px-4 py-8">
+            <div className="relative max-w-4xl mx-auto">
               <div className="bg-indigo-950 rounded-2xl border border-indigo-500/30 shadow-2xl overflow-hidden">
                 {/* Modal Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-indigo-500/20">
@@ -1176,8 +1501,7 @@ export default function ResultsPage() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </Dialog>
     </div>
   );
 }

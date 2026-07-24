@@ -59,8 +59,8 @@ export function HowParsingWorks() {
       <div className="p-4 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 rounded-xl border border-blue-500/20">
         <p className="text-sm text-indigo-200">
           <span className="font-bold text-blue-400">Why it matters: </span>
-          If your resume doesn't parse correctly, your information gets filed incorrectly
-          or becomes unsearchable. You exist in the system but can't be found.
+          If your resume doesn&apos;t parse correctly, your information gets filed incorrectly
+          or becomes unsearchable. You exist in the system but can&apos;t be found.
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export function HowParsingWorks() {
 
       {/* Visual Example */}
       <div className="p-4 bg-indigo-950/50 rounded-xl border border-indigo-500/20">
-        <h4 className="text-sm font-bold text-white mb-3">What "Silent Rejection" Looks Like</h4>
+        <h4 className="text-sm font-bold text-white mb-3">What &ldquo;Silent Rejection&rdquo; Looks Like</h4>
         <div className="grid md:grid-cols-2 gap-4 text-xs">
           <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
             <p className="text-red-300 font-medium mb-2">Two-Column Resume Parsed:</p>

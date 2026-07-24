@@ -5,6 +5,7 @@ import { Link2, Bot, Search, X, Key, Zap, Clock } from 'lucide-react';
 import { detectATSVendor, VendorDetectionResult } from '@/lib/ats';
 import type { FreeTierStatus } from '@/hooks/useFreeTier';
 import Link from 'next/link';
+import { getAnalysisAccessMode } from '@/lib/analysis/availability';
 
 /**
  * Calculate time remaining until reset
@@ -42,14 +43,20 @@ interface JobDescriptionInputProps {
   isLoading: boolean;
   /** Whether the resume has been uploaded */
   hasResume: boolean;
-  /** Whether the API key is configured for AI features */
-  hasApiKey?: boolean;
   /** Callback to open the API key settings modal */
   onOpenApiKeyModal?: () => void;
   /** Free tier status (optional) */
   freeTierStatus?: FreeTierStatus | null;
   /** Whether free tier status is loading */
   freeTierLoading?: boolean;
+  /** Whether a signed-in user has confirmed paid access */
+  hasPaidAccess?: boolean;
+  /** Whether a user identity exists (entitlement checks only apply then) */
+  isSignedIn?: boolean;
+  /** Whether paid entitlement is still being resolved */
+  entitlementLoading?: boolean;
+  /** Whether entitlement could not be verified */
+  entitlementError?: boolean;
 }
 
 /**
@@ -66,10 +73,13 @@ export function JobDescriptionInput({
   onAnalyze,
   isLoading,
   hasResume,
-  hasApiKey = false,
   onOpenApiKeyModal,
   freeTierStatus,
   freeTierLoading = false,
+  hasPaidAccess = false,
+  isSignedIn = false,
+  entitlementLoading = false,
+  entitlementError = false,
 }: JobDescriptionInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -101,13 +111,26 @@ export function JobDescriptionInput({
   );
 
   const charCount = jobText.length;
-  const canAnalyze = hasResume && charCount > 50 && !isLoading;
   const freeTierKnown = !freeTierLoading && freeTierStatus !== null;
   const freeTierEnabled = freeTierStatus?.enabled ?? false;
   const freeTierDailyLimit = freeTierStatus?.dailyLimit ?? 3;
   const demoRemaining = freeTierStatus?.remaining ?? null;
   const demoAvailable = !!(freeTierEnabled && (demoRemaining ?? 0) > 0);
   const freeTierExhausted = freeTierKnown && freeTierEnabled && !demoAvailable;
+  const accessMode = getAnalysisAccessMode({
+    isSignedIn,
+    hasPaidAccess,
+    isEntitlementLoading: entitlementLoading,
+    hasEntitlementError: entitlementError,
+    isFreeTierLoading: freeTierLoading,
+    freeTierEnabled,
+    freeTierRemaining: demoRemaining,
+  });
+  const canAnalyze =
+    hasResume &&
+    charCount > 50 &&
+    !isLoading &&
+    (accessMode === 'paid' || accessMode === 'free');
 
   const handleAnalyze = useCallback(async () => {
     await onAnalyze();
@@ -415,9 +438,13 @@ Benefits:
               </span>
             ) : charCount < 50 ? (
               <span className="text-indigo-400">Paste at least 50 characters to analyze</span>
-            ) : freeTierLoading && !hasApiKey ? (
+            ) : accessMode === 'checking' ? (
               <span className="text-indigo-400">Checking free analyses...</span>
-            ) : freeTierExhausted && !hasApiKey ? (
+            ) : entitlementError && isSignedIn ? (
+              <span className="text-amber-400">
+                Could not verify your subscription. Try again shortly.
+              </span>
+            ) : freeTierExhausted && accessMode !== 'paid' ? (
               <span className="text-amber-400">
                 Add API key or wait for reset to analyze
               </span>
@@ -430,12 +457,12 @@ Benefits:
 
           <button
             onClick={handleAnalyze}
-            disabled={!canAnalyze || (freeTierExhausted && !hasApiKey)}
+            disabled={!canAnalyze}
             className={`
               px-5 py-2.5 text-sm font-bold rounded-xl
               transition-all duration-200
               ${
-                canAnalyze && (!freeTierExhausted || hasApiKey)
+                canAnalyze
                   ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white hover:opacity-90 shadow-lg'
                   : 'bg-indigo-800/50 text-indigo-500 cursor-not-allowed border border-indigo-700/50'
               }

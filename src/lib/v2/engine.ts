@@ -11,12 +11,19 @@
  * 7. Composite score calculation
  */
 
-import type { V2AnalysisResult, AIRankingResult, ParsedResume, ParsedJobDescription } from './types';
+import type {
+  V2AnalysisResult,
+  AIRankingResult,
+  ParsedResume,
+  ParsedJobDescription,
+  KnockoutStatus,
+} from './types';
 import { parseResumeWithGemini } from './parseResume';
 import { parseJobDescriptionWithGemini } from './parseJobDescription';
 import { runKnockoutScreening } from './knockoutScreen';
 import { runSectionMatching } from './sectionMatch';
 import { runBooleanSearch } from './booleanSearch';
+import { extractGeminiText, parseAIRankingPayload } from './validation';
 
 // Composite score weights (from blueprint)
 const WEIGHTS = {
@@ -26,6 +33,7 @@ const WEIGHTS = {
 };
 
 const KNOCKOUT_FAIL_CAP = 30;
+const KNOCKOUT_CONFIRMATION_CAP = 64;
 
 // ============================================================================
 // AI Holistic Ranking (Layer 4)
@@ -70,9 +78,14 @@ const AI_RANKING_SCHEMA = {
 async function runAIRanking(
   resume: ParsedResume,
   jd: ParsedJobDescription,
-  layerResults: { knockoutPassed: boolean; sectionMatchScore: number; booleanSearchScore: number },
+  layerResults: {
+    knockoutStatus: KnockoutStatus;
+    sectionMatchScore: number | null;
+    booleanSearchScore: number | null;
+  },
   apiKey: string,
-  model: string
+  model: string,
+  signal?: AbortSignal
 ): Promise<AIRankingResult> {
   const contextPrompt = `${AI_RANKING_PROMPT}
 
@@ -83,9 +96,23 @@ ${JSON.stringify(resume, null, 2)}
 ${JSON.stringify(jd, null, 2)}
 
 === DETERMINISTIC SCREENING RESULTS ===
-Knockout screening: ${layerResults.knockoutPassed ? 'PASSED' : 'FAILED (hard requirement not met)'}
-Section-aware match score: ${layerResults.sectionMatchScore}/100
-Boolean search score: ${layerResults.booleanSearchScore}/100`;
+Knockout screening: ${
+    layerResults.knockoutStatus === 'pass'
+      ? 'PASSED'
+      : layerResults.knockoutStatus === 'fail'
+        ? 'FAILED (hard requirement not met)'
+        : 'NEEDS CONFIRMATION (hard requirement could not be verified)'
+  }
+Section-aware match score: ${
+    layerResults.sectionMatchScore === null
+      ? 'NOT EVALUATED'
+      : `${layerResults.sectionMatchScore}/100`
+  }
+Boolean search score: ${
+    layerResults.booleanSearchScore === null
+      ? 'NOT EVALUATED'
+      : `${layerResults.booleanSearchScore}/100`
+  }`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -107,22 +134,29 @@ Boolean search score: ${layerResults.booleanSearchScore}/100`;
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
         ],
       }),
+      signal,
     }
   );
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`Gemini AI ranking failed (${response.status}): ${errorText.slice(0, 200)}`);
+    throw new Error(`AI ranking provider request failed (${response.status})`);
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('').trim();
+  const data: unknown = await response.json();
+  const text = extractGeminiText(data);
 
   if (!text) {
-    throw new Error('Gemini returned empty response for AI ranking');
+    throw new Error('AI ranking provider returned no usable result');
   }
 
-  return JSON.parse(text) as AIRankingResult;
+  return parseAIRankingPayload(text);
+}
+
+function fitLabelForScore(score: number): AIRankingResult['fitLabel'] {
+  if (score >= 85) return 'Strong Match';
+  if (score >= 65) return 'Good Match';
+  if (score >= 40) return 'Partial Match';
+  return 'Weak Match';
 }
 
 // ============================================================================
@@ -133,13 +167,17 @@ export async function runV2Analysis(
   resumeText: string,
   jobDescriptionText: string,
   apiKey: string,
-  model: string = 'gemini-2.5-flash'
+  model: string = 'gemini-2.5-flash',
+  signal?: AbortSignal
 ): Promise<V2AnalysisResult> {
+  signal?.throwIfAborted();
+
   // Step 1 & 2: Parse both inputs in parallel
   const [resumeResult, jdResult] = await Promise.all([
-    parseResumeWithGemini(resumeText, apiKey, model),
-    parseJobDescriptionWithGemini(jobDescriptionText, apiKey, model),
+    parseResumeWithGemini(resumeText, apiKey, model, signal),
+    parseJobDescriptionWithGemini(jobDescriptionText, apiKey, model, signal),
   ]);
+  signal?.throwIfAborted();
 
   const { parsed: parsedResume, warnings: resumeWarnings } = resumeResult;
   const { parsed: parsedJD, warnings: jdWarnings } = jdResult;
@@ -155,28 +193,65 @@ export async function runV2Analysis(
   const booleanSearch = runBooleanSearch(parsedResume, parsedJD.booleanSearchTerms);
 
   // Step 6: Layer 4 — AI holistic ranking
-  const aiRanking = await runAIRanking(
+  const rawAiRanking = await runAIRanking(
     parsedResume,
     parsedJD,
     {
-      knockoutPassed: knockout.passed,
+      knockoutStatus: knockout.overallStatus,
       sectionMatchScore: sectionMatch.score,
-      booleanSearchScore: booleanSearch.score,
+      booleanSearchScore:
+        booleanSearch.evidenceStatus === 'evaluated'
+          ? booleanSearch.score
+          : null,
     },
     apiKey,
-    model
+    model,
+    signal
   );
+  signal?.throwIfAborted();
+
+  const rankingCap =
+    knockout.overallStatus === 'fail'
+      ? KNOCKOUT_FAIL_CAP
+      : knockout.overallStatus === 'needs-confirmation'
+        ? KNOCKOUT_CONFIRMATION_CAP
+        : 100;
+  const cappedAiFitScore = Math.min(rawAiRanking.fitScore, rankingCap);
+  const aiRanking: AIRankingResult = {
+    ...rawAiRanking,
+    fitScore: cappedAiFitScore,
+    fitLabel: fitLabelForScore(cappedAiFitScore),
+  };
 
   // Step 7: Composite score calculation
-  const sectionMatchWeighted = sectionMatch.score * WEIGHTS.sectionMatch;
-  const booleanSearchWeighted = booleanSearch.score * WEIGHTS.booleanSearch;
-  const aiFitWeighted = aiRanking.fitScore * WEIGHTS.aiFit;
+  const availableWeight =
+    (sectionMatch.score === null ? 0 : WEIGHTS.sectionMatch) +
+    (booleanSearch.evidenceStatus === 'not-evaluated'
+      ? 0
+      : WEIGHTS.booleanSearch) +
+    WEIGHTS.aiFit;
+  const appliedWeights = {
+    sectionMatch:
+      sectionMatch.score === null ? 0 : WEIGHTS.sectionMatch / availableWeight,
+    booleanSearch:
+      booleanSearch.evidenceStatus === 'not-evaluated'
+        ? 0
+        : WEIGHTS.booleanSearch / availableWeight,
+    aiFit: WEIGHTS.aiFit / availableWeight,
+  };
+  const sectionMatchWeighted =
+    (sectionMatch.score ?? 0) * appliedWeights.sectionMatch;
+  const booleanSearchWeighted =
+    booleanSearch.score * appliedWeights.booleanSearch;
+  const aiFitWeighted = aiRanking.fitScore * appliedWeights.aiFit;
   let compositeScore = Math.round(sectionMatchWeighted + booleanSearchWeighted + aiFitWeighted);
 
   // Knockout gate: if any hard requirement failed, cap at 30
   const knockoutGatePassed = knockout.passed;
-  if (!knockoutGatePassed) {
+  if (knockout.overallStatus === 'fail') {
     compositeScore = Math.min(compositeScore, KNOCKOUT_FAIL_CAP);
+  } else if (knockout.overallStatus === 'needs-confirmation') {
+    compositeScore = Math.min(compositeScore, KNOCKOUT_CONFIRMATION_CAP);
   }
 
   return {
@@ -189,7 +264,14 @@ export async function runV2Analysis(
     composite: {
       score: compositeScore,
       knockoutGatePassed,
-      weights: WEIGHTS,
+      knockoutGateStatus: knockout.overallStatus,
+      confidence:
+        knockout.overallStatus === 'needs-confirmation' ||
+        sectionMatch.evidenceStatus === 'not-evaluated' ||
+        booleanSearch.evidenceStatus === 'not-evaluated'
+          ? 'limited'
+          : 'full',
+      weights: appliedWeights,
       breakdown: {
         sectionMatchWeighted: Math.round(sectionMatchWeighted),
         booleanSearchWeighted: Math.round(booleanSearchWeighted),

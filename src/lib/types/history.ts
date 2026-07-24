@@ -4,7 +4,7 @@
  * Types for tracking analysis history over time.
  */
 
-import { ATSVendor } from '../ats';
+import type { ATSVendor } from '../ats';
 
 /**
  * Score snapshot at time of analysis

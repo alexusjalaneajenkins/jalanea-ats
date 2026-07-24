@@ -35,30 +35,39 @@ export default function SignUpPage() {
 
     setIsSubmitting(true);
 
-    const { error: signUpError, user } = await signUp(email, password);
-
-    if (signUpError) {
-      setError(signUpError);
-      setIsSubmitting(false);
-    } else if (user) {
-      // Check if email confirmation is required
-      if (user.confirmed_at) {
-        router.push('/account');
-      } else {
-        setSuccess(true);
+    try {
+      const { error: signUpError, user } = await signUp(email, password);
+      if (signUpError) {
+        setError(signUpError);
+        return;
       }
+      if (user) {
+        if (user.confirmed_at) {
+          router.push('/account');
+        } else {
+          setSuccess(true);
+        }
+      }
+    } catch {
+      setError('Unable to create your account. Check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleGoogleSignUp = async () => {
     setError(null);
     setIsGoogleLoading(true);
-    const { error: googleError } = await signInWithGoogle('/account');
-    if (googleError) {
-      setError(googleError);
+    try {
+      const { error: googleError } = await signInWithGoogle('/account');
+      if (googleError) {
+        setError(googleError);
+      }
+    } catch {
+      setError('Unable to connect to Google. Check your connection and try again.');
+    } finally {
       setIsGoogleLoading(false);
     }
-    // If no error, the page will redirect to Google OAuth
   };
 
   if (success) {
@@ -192,6 +201,7 @@ export default function SignUpPage() {
                   <input
                     id="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -210,6 +220,7 @@ export default function SignUpPage() {
                   <input
                     id="password"
                     type="password"
+                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -232,6 +243,7 @@ export default function SignUpPage() {
                   <input
                     id="confirmPassword"
                     type="password"
+                    autoComplete="new-password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required

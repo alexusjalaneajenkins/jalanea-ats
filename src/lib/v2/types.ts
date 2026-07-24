@@ -98,6 +98,8 @@ export interface KnockoutResult {
 export interface KnockoutLayerResult {
   results: KnockoutResult[];
   hardFailCount: number;
+  needsConfirmationCount: number;
+  overallStatus: KnockoutStatus;
   passed: boolean;
 }
 
@@ -115,7 +117,8 @@ export interface SectionMatchItem {
 export interface SectionMatchLayerResult {
   matches: SectionMatchItem[];
   preferredMatches: SectionMatchItem[];
-  score: number; // 0-100
+  score: number | null; // 0-100, or null when there are no required items
+  evidenceStatus: 'evaluated' | 'not-evaluated';
   foundCount: number;
   totalRequired: number;
 }
@@ -124,7 +127,8 @@ export interface BooleanSearchLayerResult {
   searchString: string;
   termResults: { term: string; found: boolean; isAndTerm: boolean }[];
   score: number; // 0-100
-  wouldSurface: boolean;
+  evidenceStatus: 'evaluated' | 'not-evaluated';
+  wouldSurface: boolean | null;
 }
 
 export interface AIRankingResult {
@@ -151,6 +155,8 @@ export interface V2AnalysisResult {
   composite: {
     score: number; // 0-100
     knockoutGatePassed: boolean;
+    knockoutGateStatus: KnockoutStatus;
+    confidence: 'full' | 'limited';
     weights: { sectionMatch: number; booleanSearch: number; aiFit: number };
     breakdown: {
       sectionMatchWeighted: number;

@@ -1,0 +1,63 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Use the pinned package manager
+        run: npm install --global yarn@1.22.22
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check release hygiene
+        run: yarn check:release
+
+      - name: Scan tracked files for secrets
+        run: yarn check:secrets
+
+      - name: Type-check
+        run: yarn typecheck
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Run unit and integration tests
+        run: yarn test:unit
+
+      - name: Build production application
+        run: yarn build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: yarn test:e2e
+
+      - name: Audit production dependencies
+        run: yarn audit:prod

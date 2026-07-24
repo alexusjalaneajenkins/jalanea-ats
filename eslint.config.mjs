@@ -12,6 +12,14 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Package-matched vendored PDF.js worker; verified byte-for-byte in tests.
+    "public/pdf.worker.min.mjs",
+    "**/* 2.ts",
+    "**/* 2.tsx",
+    "**/* 2.js",
+    "**/* 2.jsx",
+    "**/* 2.mjs",
+    "**/* 2.cjs",
   ]),
 ]);
 

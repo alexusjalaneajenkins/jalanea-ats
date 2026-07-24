@@ -94,8 +94,8 @@ export function ATSMythSection() {
       <div className="p-4 bg-gradient-to-r from-orange-500/10 to-pink-500/10 rounded-xl border border-orange-500/20">
         <p className="text-sm text-indigo-200 prose-readable">
           <span className="font-bold text-orange-400">Key insight: </span>
-          ATS systems are filing cabinets, not gatekeepers. Your resume isn't "rejected by the ATS"—
-          it's either parsed correctly (filed properly) or not. The human recruiter does the actual selecting.
+          ATS systems are filing cabinets, not gatekeepers. Your resume isn&apos;t &ldquo;rejected by the ATS&rdquo;—
+          it&apos;s either parsed correctly (filed properly) or not. The human recruiter does the actual selecting.
         </p>
       </div>
 
@@ -119,7 +119,7 @@ export function ATSMythSection() {
                     </span>
                   </div>
                   <p className="text-sm font-medium text-white mb-2">
-                    "{item.myth}"
+                    &ldquo;{item.myth}&rdquo;
                   </p>
                   <p className="text-sm text-indigo-200">
                     {item.reality}
@@ -135,7 +135,7 @@ export function ATSMythSection() {
       <div className="p-4 bg-indigo-950/50 rounded-xl border border-indigo-500/20">
         <h4 className="text-sm font-bold text-white mb-2">The Bottom Line</h4>
         <p className="text-sm text-indigo-200">
-          Stop trying to "beat" the ATS. Instead, focus on:
+          Stop trying to &ldquo;beat&rdquo; the ATS. Instead, focus on:
         </p>
         <ul className="mt-2 space-y-1 text-sm text-indigo-200">
           <li className="flex items-center gap-2">

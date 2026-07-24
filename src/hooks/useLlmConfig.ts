@@ -7,7 +7,7 @@
  * Handles loading, saving, and updating config from IndexedDB.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LlmConfig,
   DEFAULT_LLM_CONFIG,
@@ -16,6 +16,10 @@ import {
   updateConsent,
 } from '@/lib/llm';
 import { geminiProvider } from '@/lib/llm/gemini';
+import {
+  isCurrentLlmOwnerOperation,
+  StaleLlmOwnerOperationError,
+} from '@/lib/llm/ownerOperation';
 
 export interface UseLlmConfigReturn {
   config: LlmConfig | null;
@@ -27,62 +31,139 @@ export interface UseLlmConfigReturn {
   refresh: () => Promise<void>;
 }
 
-export function useLlmConfig(): UseLlmConfigReturn {
+export function useLlmConfig(userId: string | null): UseLlmConfigReturn {
   const [config, setConfig] = useState<LlmConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const loadVersionRef = useRef(0);
+  const activeOwnerRef = useRef<string | null>(userId);
+  activeOwnerRef.current = userId;
 
-  // Load config on mount
-  useEffect(() => {
-    loadConfig();
+  const isCurrentOwnerOperation = useCallback((
+    requestedOwnerId: string | null,
+    requestedVersion: number
+  ) => isCurrentLlmOwnerOperation({
+    activeOwnerId: activeOwnerRef.current,
+    requestedOwnerId,
+    activeVersion: loadVersionRef.current,
+    requestedVersion,
+  }), []);
+
+  const clearInMemoryProvider = useCallback(() => {
+    geminiProvider.setApiKey('');
   }, []);
 
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
+    const ownerId = userId;
+    if (activeOwnerRef.current !== ownerId) return;
+
+    const loadVersion = loadVersionRef.current + 1;
+    loadVersionRef.current = loadVersion;
+    clearInMemoryProvider();
+
+    if (!ownerId) {
+      if (!isCurrentOwnerOperation(ownerId, loadVersion)) return;
+      setConfig({ ...DEFAULT_LLM_CONFIG });
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const loaded = await loadLlmConfig();
-      const configToUse = loaded || DEFAULT_LLM_CONFIG;
+      setConfig(null);
+      const loaded = await loadLlmConfig(ownerId);
+      if (!isCurrentOwnerOperation(ownerId, loadVersion)) return;
+      const configToUse = loaded || { ...DEFAULT_LLM_CONFIG };
       setConfig(configToUse);
 
-      // Sync gemini provider with loaded config
       if (configToUse.provider === 'gemini') {
-        if (configToUse.apiKey) {
-          geminiProvider.setApiKey(configToUse.apiKey);
-        }
+        geminiProvider.setApiKey(configToUse.apiKey);
         if (configToUse.geminiModel) {
           geminiProvider.setModel(configToUse.geminiModel);
         }
       }
     } catch (error) {
+      if (!isCurrentOwnerOperation(ownerId, loadVersion)) return;
       console.error('Failed to load LLM config:', error);
-      setConfig(DEFAULT_LLM_CONFIG);
+      setConfig({ ...DEFAULT_LLM_CONFIG });
     } finally {
-      setIsLoading(false);
+      if (isCurrentOwnerOperation(ownerId, loadVersion)) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [clearInMemoryProvider, isCurrentOwnerOperation, userId]);
+
+  // Clear the previous account's in-memory provider key before loading the
+  // next owner-scoped record.
+  useEffect(() => {
+    void loadConfig();
+    return () => {
+      loadVersionRef.current += 1;
+      if (activeOwnerRef.current === userId) {
+        clearInMemoryProvider();
+      }
+    };
+  }, [clearInMemoryProvider, loadConfig, userId]);
 
   const updateConfig = useCallback(async (newConfig: LlmConfig) => {
+    const requestedOwnerId = userId;
+    if (activeOwnerRef.current !== requestedOwnerId) {
+      throw new StaleLlmOwnerOperationError();
+    }
+
+    const operationVersion = loadVersionRef.current + 1;
+    loadVersionRef.current = operationVersion;
+    setIsLoading(true);
+
     try {
-      await saveLlmConfig(newConfig);
+      if (requestedOwnerId) {
+        await saveLlmConfig(newConfig, requestedOwnerId);
+      } else if (newConfig.apiKey) {
+        throw new Error('Sign in before saving an API key');
+      }
+
+      if (!isCurrentOwnerOperation(requestedOwnerId, operationVersion)) {
+        throw new StaleLlmOwnerOperationError();
+      }
+
       setConfig(newConfig);
 
       // Sync gemini provider with new config
       if (newConfig.provider === 'gemini') {
-        if (newConfig.apiKey) {
-          geminiProvider.setApiKey(newConfig.apiKey);
-        }
+        geminiProvider.setApiKey(newConfig.apiKey);
         if (newConfig.geminiModel) {
           geminiProvider.setModel(newConfig.geminiModel);
         }
       }
     } catch (error) {
-      console.error('Failed to save LLM config:', error);
+      if (!(error instanceof StaleLlmOwnerOperationError)) {
+        console.error('Failed to save LLM config:', error);
+      }
       throw error;
+    } finally {
+      if (isCurrentOwnerOperation(requestedOwnerId, operationVersion)) {
+        setIsLoading(false);
+      }
     }
-  }, []);
+  }, [isCurrentOwnerOperation, userId]);
 
   const setConsent = useCallback(async (consented: boolean) => {
+    const requestedOwnerId = userId;
+    if (activeOwnerRef.current !== requestedOwnerId) {
+      throw new StaleLlmOwnerOperationError();
+    }
+
+    const operationVersion = loadVersionRef.current + 1;
+    loadVersionRef.current = operationVersion;
+
     try {
-      await updateConsent(consented);
+      if (requestedOwnerId) {
+        await updateConsent(consented, requestedOwnerId);
+      }
+
+      if (!isCurrentOwnerOperation(requestedOwnerId, operationVersion)) {
+        throw new StaleLlmOwnerOperationError();
+      }
+
       setConfig((prev) =>
         prev
           ? {
@@ -93,14 +174,16 @@ export function useLlmConfig(): UseLlmConfigReturn {
           : null
       );
     } catch (error) {
-      console.error('Failed to update consent:', error);
+      if (!(error instanceof StaleLlmOwnerOperationError)) {
+        console.error('Failed to update consent:', error);
+      }
       throw error;
     }
-  }, []);
+  }, [isCurrentOwnerOperation, userId]);
 
   const refresh = useCallback(async () => {
     await loadConfig();
-  }, []);
+  }, [loadConfig]);
 
   return {
     config,

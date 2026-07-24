@@ -2,7 +2,7 @@
  * Stripe Client Configuration
  *
  * Server-side: Use stripe (Node SDK) for API operations
- * Client-side: Use @stripe/stripe-js for redirects only
+ * Client-side checkout follows the server-created hosted Checkout URL directly.
  */
 
 import Stripe from 'stripe';
@@ -19,8 +19,12 @@ export function getStripe(): Stripe {
       throw new Error('STRIPE_SECRET_KEY is not configured. Add it to .env.local');
     }
     _stripe = new Stripe(secretKey, {
-      apiVersion: '2026-01-28.clover',
+      apiVersion: '2026-02-25.clover',
       typescript: true,
+      // Keep provider calls well inside the database's five-minute pending
+      // checkout lease used to serialize checkout against ATS deletion.
+      timeout: 30_000,
+      maxNetworkRetries: 2,
     });
   }
   return _stripe;

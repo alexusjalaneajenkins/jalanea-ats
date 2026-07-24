@@ -145,6 +145,7 @@ interface JobMatchStepperProps {
   knockouts: (KnockoutItem | EnhancedKnockoutItem)[];
   keywords: { critical: string[]; optional: string[] } | null;
   llmConfig: LlmConfig | null;
+  hasAiConsent: boolean;
   geminiModel?: GeminiModel;
   resumeFileName: string;
   resumeText: string;
@@ -171,6 +172,7 @@ export function JobMatchStepper({
   knockouts,
   keywords,
   llmConfig,
+  hasAiConsent,
   geminiModel,
   resumeFileName,
   resumeText,
@@ -256,7 +258,11 @@ export function JobMatchStepper({
     iterationHistory,
   ]);
 
-  const hasAiAccess = Boolean(llmConfig?.apiKey && llmConfig?.hasConsented) || Boolean(freeTierStatus?.enabled);
+  const hasAiAccess = hasAiConsent
+    && (
+      Boolean(llmConfig?.apiKey && llmConfig?.hasConsented)
+      || Boolean(freeTierStatus?.enabled)
+    );
   const currentStep = STEPS[currentStepIndex];
   const CurrentStepIcon = currentStep.icon;
   const isFirstStep = currentStepIndex === 0;
@@ -361,7 +367,7 @@ export function JobMatchStepper({
     goToStep(STEPS.length - 1);
   }, [draftChanges, finalDraftText, goToStep, iterationHistory.length, targetingArtifact]);
 
-  const useSnapshotAsFinal = useCallback(
+  const applySnapshotAsFinal = useCallback(
     (snapshot: IterationSnapshot) => {
       setFinalDraftText(snapshot.draftText);
       goToStep(FINAL_OUTPUT_INDEX);
@@ -655,8 +661,11 @@ export function JobMatchStepper({
               analysisGaps={targetingArtifact.matchAnalysis.gaps}
               analysisRecommendations={targetingArtifact.tailoredDraft.suggestions.map((suggestion) => suggestion.instruction)}
               isAiAvailable={hasAiAccess}
+              hasAiConsent={hasAiConsent}
               geminiModel={geminiModel}
-              onConfigureClick={onConfigureClick}
+              onConfigureClick={
+                hasAiConsent ? onConfigureClick : onConsentClick
+              }
               onDraftChange={handleDraftChange}
             />
             <AiFeaturesPanel
@@ -861,7 +870,7 @@ export function JobMatchStepper({
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                         <button
-                          onClick={() => useSnapshotAsFinal(snapshot)}
+                          onClick={() => applySnapshotAsFinal(snapshot)}
                           className="rounded-xl border border-indigo-500/20 bg-indigo-900/40 px-3 py-2 text-sm text-indigo-100 transition hover:border-indigo-400/40 hover:bg-indigo-800/60"
                         >
                           Use as final draft

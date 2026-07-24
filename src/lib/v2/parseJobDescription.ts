@@ -3,6 +3,7 @@
  */
 
 import type { ParsedJobDescription } from './types';
+import { extractGeminiText, parseJobDescriptionPayload } from './validation';
 
 const JD_PARSE_PROMPT = `You are an ATS recruiter configuration assistant. Read this job description and extract the screening criteria a recruiter would configure in their ATS.
 
@@ -34,17 +35,10 @@ Return JSON matching this structure:
 }
 
 Rules:
-- knockoutCriteria: Only include HARD requirements that would auto-reject a candidate (licenses, certifications, degrees, background checks, physical requirements, work authorization). Mark isHardRequirement=true for must-haves, false for strong preferences.
-- requiredSkills: ONLY extract concrete, ATS-searchable professional skills and qualifications that a recruiter would actually filter resumes by. DO NOT include:
-  * Generic aspirational phrases from company culture sections (e.g., "work with kids", "make a difference", "passion for helping")
-  * COVID/safety boilerplate (e.g., "social distancing", "protective hygiene", "PPE")
-  * Universal soft skills everyone claims (e.g., "team player", "detail oriented") — put these in preferredQualifications instead
-  * Company values or mission statements
-  Focus on: specific therapy methods, clinical techniques, certifications, software tools, measurable professional competencies.
-  Use SHORT skill names (e.g., "ABA therapy" not "Applied Behavior Analysis (ABA) therapy experience of at least 1 year"). Include the acronym if common.
-  Use category "clinical" for healthcare/medical skills, "technical" for tech skills, "tool" for specific software/platforms, "soft" for interpersonal skills.
+- knockoutCriteria: Only include HARD requirements that would auto-reject a candidate. Mark isHardRequirement=true for must-haves, false for strong preferences.
+- requiredSkills: Extract every skill mentioned. Use category "clinical" for healthcare/medical skills, "technical" for tech skills, "tool" for specific software/platforms, "soft" for interpersonal skills.
 - matchSection: Where a recruiter would expect to find this — "skills" for listed skills, "certifications" for certs/licenses, "experience" for things proven through work history, "any" for general terms.
-- booleanSearchTerms: The exact keywords a recruiter would type into their ATS search bar to find candidates for this role. Include the job title, key certifications, key skills, and industry terms. Use SHORT terms (2-3 words max).
+- booleanSearchTerms: The exact keywords a recruiter would type into their ATS search bar to find candidates for this role. Include the job title, key certifications, key skills, and industry terms.
 - Distinguish between hard requirements (must-have) and preferences (nice-to-have).
 - Only extract what the posting explicitly states. Do not infer requirements.`;
 
@@ -98,7 +92,8 @@ const JD_SCHEMA = {
 export async function parseJobDescriptionWithGemini(
   jdText: string,
   apiKey: string,
-  model: string = 'gemini-2.5-flash'
+  model: string = 'gemini-2.5-flash',
+  signal?: AbortSignal
 ): Promise<{ parsed: ParsedJobDescription; warnings: string[] }> {
   const warnings: string[] = [];
 
@@ -122,22 +117,22 @@ export async function parseJobDescriptionWithGemini(
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
         ],
       }),
+      signal,
     }
   );
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`Gemini JD parse failed (${response.status}): ${errorText.slice(0, 200)}`);
+    throw new Error(`Job analysis provider request failed (${response.status})`);
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('').trim();
+  const data: unknown = await response.json();
+  const text = extractGeminiText(data);
 
   if (!text) {
-    throw new Error('Gemini returned empty response for JD parsing');
+    throw new Error('Job analysis provider returned no usable result');
   }
 
-  const parsed: ParsedJobDescription = JSON.parse(text);
+  const parsed: ParsedJobDescription = parseJobDescriptionPayload(text);
 
   // Validation
   if (!parsed.roleTitle) {

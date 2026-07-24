@@ -5,8 +5,12 @@
  * Tracks analyses over time and allows comparison/improvement tracking.
  */
 
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { openDB } from 'idb';
+import type { DBSchema, IDBPDatabase } from 'idb';
 import {
+  generateResumeHash,
+} from '../types/history';
+import type {
   HistoryEntry,
   ResumeGroup,
   HistoryStats,
@@ -14,10 +18,17 @@ import {
   ScoreSnapshot,
   JobMetadata,
   TargetingHistorySummary,
-  generateResumeHash,
 } from '../types/history';
-import { AnalysisSession } from '../types/session';
-import { ATSVendor } from '../ats';
+import type { AnalysisSession } from '../types/session';
+import {
+  isPersistentStorageActive,
+  runWithStorageFallback,
+} from './capability';
+import {
+  captureLocalDataGeneration,
+  runLocalDataClear,
+  runLocalDataMutation,
+} from './mutationBarrier';
 
 // =============================================================================
 // Database Schema
@@ -47,13 +58,6 @@ interface HistoryDB extends DBSchema {
 // =============================================================================
 
 let dbPromise: Promise<IDBPDatabase<HistoryDB>> | null = null;
-
-/**
- * Check if IndexedDB is available (browser environment)
- */
-function isIndexedDBAvailable(): boolean {
-  return typeof window !== 'undefined' && 'indexedDB' in window;
-}
 
 /**
  * Get or create the database connection
@@ -152,7 +156,7 @@ class IndexedDBHistoryStore {
       return entry ?? null;
     } catch (error) {
       console.error('[HistoryStore] Failed to get entry:', error);
-      return null;
+      throw error;
     }
   }
 
@@ -168,7 +172,7 @@ class IndexedDBHistoryStore {
       );
     } catch (error) {
       console.error('[HistoryStore] Failed to get all entries:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -184,7 +188,7 @@ class IndexedDBHistoryStore {
       );
     } catch (error) {
       console.error('[HistoryStore] Failed to get entries by resume hash:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -198,7 +202,7 @@ class IndexedDBHistoryStore {
       return entries[0] ?? null;
     } catch (error) {
       console.error('[HistoryStore] Failed to get entry by session ID:', error);
-      return null;
+      throw error;
     }
   }
 
@@ -222,7 +226,7 @@ class IndexedDBHistoryStore {
       return true;
     } catch (error) {
       console.error('[HistoryStore] Failed to delete entry:', error);
-      return false;
+      throw error;
     }
   }
 
@@ -248,7 +252,7 @@ class IndexedDBHistoryStore {
       return await db.count(STORE_NAME);
     } catch (error) {
       console.error('[HistoryStore] Failed to count entries:', error);
-      return 0;
+      throw error;
     }
   }
 }
@@ -260,18 +264,28 @@ class IndexedDBHistoryStore {
 let indexedDBStore: IndexedDBHistoryStore | null = null;
 let inMemoryStore: InMemoryHistoryStore | null = null;
 
-function getStore(): IndexedDBHistoryStore | InMemoryHistoryStore {
-  if (isIndexedDBAvailable()) {
-    if (!indexedDBStore) {
-      indexedDBStore = new IndexedDBHistoryStore();
-    }
-    return indexedDBStore;
+function getIndexedDBStore(): IndexedDBHistoryStore {
+  if (!indexedDBStore) {
+    indexedDBStore = new IndexedDBHistoryStore();
   }
+  return indexedDBStore;
+}
 
+function getInMemoryStore(): InMemoryHistoryStore {
   if (!inMemoryStore) {
     inMemoryStore = new InMemoryHistoryStore();
   }
   return inMemoryStore;
+}
+
+function withHistoryStorage<T>(
+  persistentOperation: (store: IndexedDBHistoryStore) => Promise<T>,
+  ephemeralOperation: (store: InMemoryHistoryStore) => Promise<T>
+): Promise<T> {
+  return runWithStorageFallback(
+    () => persistentOperation(getIndexedDBStore()),
+    () => ephemeralOperation(getInMemoryStore())
+  );
 }
 
 // =============================================================================
@@ -398,7 +412,10 @@ export function calculateStats(entries: HistoryEntry[]): HistoryStats {
  * Exports history to a JSON file
  */
 export async function exportHistory(): Promise<HistoryExport> {
-  const entries = await getStore().getAll();
+  const entries = await withHistoryStorage(
+    (store) => store.getAll(),
+    (store) => store.getAll()
+  );
   return {
     version: '1.0',
     exportedAt: new Date().toISOString(),
@@ -415,10 +432,11 @@ export async function importHistory(data: HistoryExport): Promise<number> {
   }
 
   let imported = 0;
+  const storageGeneration = captureLocalDataGeneration();
   for (const entry of data.entries) {
     // Validate entry has required fields
     if (entry.id && entry.timestamp && entry.resumeHash && entry.scores) {
-      await getStore().save(entry);
+      await historyStore.save(entry, storageGeneration);
       imported++;
     }
   }
@@ -434,7 +452,18 @@ export const historyStore = {
   /**
    * Saves a history entry
    */
-  save: (entry: HistoryEntry) => getStore().save(entry),
+  save: (entry: HistoryEntry, expectedGeneration?: number) =>
+    runLocalDataMutation(
+      () =>
+        withHistoryStorage(
+          async (store) => {
+            await store.save(entry);
+            await getInMemoryStore().save(entry);
+          },
+          (store) => store.save(entry)
+        ),
+      expectedGeneration
+    ),
 
   /**
    * Saves from an analysis session with scores
@@ -444,8 +473,9 @@ export const historyStore = {
     scores: ScoreSnapshot,
     job?: JobMetadata
   ): Promise<HistoryEntry> => {
+    const storageGeneration = captureLocalDataGeneration();
     const entry = createHistoryEntry(session, scores, job);
-    await getStore().save(entry);
+    await historyStore.save(entry, storageGeneration);
     return entry;
   },
 
@@ -457,62 +487,113 @@ export const historyStore = {
     scores: ScoreSnapshot,
     job?: JobMetadata
   ): Promise<HistoryEntry> => {
-    const existing = await historyStore.getBySessionId(session.id);
+    const storageGeneration = captureLocalDataGeneration();
+    const existing = await historyStore.getBySessionId(
+      session.id,
+      storageGeneration
+    );
     const entry = createHistoryEntry(session, scores, job, existing?.id);
-    await getStore().save(entry);
+    await historyStore.save(entry, storageGeneration);
     return entry;
   },
 
   /**
    * Gets a history entry by ID
    */
-  get: (id: string) => getStore().get(id),
+  get: (id: string) =>
+    runLocalDataMutation(() =>
+      withHistoryStorage(
+        async (store) => {
+          const entry = await store.get(id);
+          if (entry) await getInMemoryStore().save(entry);
+          return entry;
+        },
+        (store) => store.get(id)
+      )
+    ),
 
   /**
    * Gets all history entries
    */
-  getAll: () => getStore().getAll(),
+  getAll: () =>
+    runLocalDataMutation(() =>
+      withHistoryStorage(
+        async (store) => {
+          const entries = await store.getAll();
+          await Promise.all(
+            entries.map((entry) => getInMemoryStore().save(entry))
+          );
+          return entries;
+        },
+        (store) => store.getAll()
+      )
+    ),
 
   /**
    * Gets entries for a specific resume
    */
-  getByResumeHash: (hash: string) => {
-    const store = getStore();
-    if (store instanceof IndexedDBHistoryStore) {
-      return store.getByResumeHash(hash);
-    }
-    return (store as InMemoryHistoryStore).getByResumeHash(hash);
-  },
+  getByResumeHash: (hash: string) =>
+    runLocalDataMutation(() =>
+      withHistoryStorage(
+        async (store) => {
+          const entries = await store.getByResumeHash(hash);
+          await Promise.all(
+            entries.map((entry) => getInMemoryStore().save(entry))
+          );
+          return entries;
+        },
+        (store) => store.getByResumeHash(hash)
+      )
+    ),
 
   /**
    * Gets entry by session ID
    */
-  getBySessionId: (sessionId: string) => {
-    const store = getStore();
-    if (store instanceof IndexedDBHistoryStore) {
-      return store.getBySessionId(sessionId);
-    }
-    return store.getAll().then(entries =>
-      entries.find(e => e.sessionId === sessionId) || null
-    );
-  },
+  getBySessionId: (
+    sessionId: string,
+    expectedGeneration?: number
+  ) =>
+    runLocalDataMutation(
+      () =>
+        withHistoryStorage(
+          async (store) => {
+            const entry = await store.getBySessionId(sessionId);
+            if (entry) await getInMemoryStore().save(entry);
+            return entry;
+          },
+          (store) =>
+            store
+              .getAll()
+              .then((entries) =>
+                entries.find((entry) => entry.sessionId === sessionId) ?? null
+              )
+        ),
+      expectedGeneration
+    ),
 
   /**
    * Gets recent history entries
    */
-  getRecent: (limit?: number) => {
-    const store = getStore();
-    if (store instanceof IndexedDBHistoryStore) {
-      return store.getRecent(limit);
-    }
-    return store.getAll().then(entries => entries.slice(0, limit ?? 20));
-  },
+  getRecent: (limit?: number) =>
+    runLocalDataMutation(() =>
+      withHistoryStorage(
+        async (store) => {
+          const entries = await store.getRecent(limit);
+          await Promise.all(
+            entries.map((entry) => getInMemoryStore().save(entry))
+          );
+          return entries;
+        },
+        (store) =>
+          store.getAll().then((entries) => entries.slice(0, limit ?? 20))
+      )
+    ),
 
   /**
    * Gets history grouped by resume
    */
   getGrouped: async (): Promise<ResumeGroup[]> => {
-    const entries = await getStore().getAll();
+    const entries = await historyStore.getAll();
     return groupByResume(entries);
   },
 
@@ -520,24 +601,47 @@ export const historyStore = {
    * Gets history statistics
    */
   getStats: async (): Promise<HistoryStats> => {
-    const entries = await getStore().getAll();
+    const entries = await historyStore.getAll();
     return calculateStats(entries);
   },
 
   /**
    * Deletes a history entry
    */
-  delete: (id: string) => getStore().delete(id),
+  delete: (id: string) =>
+    runLocalDataMutation(() =>
+      withHistoryStorage(
+        async (store) => {
+          const deleted = await store.delete(id);
+          await getInMemoryStore().delete(id);
+          return deleted;
+        },
+        (store) => store.delete(id)
+      )
+    ),
 
   /**
    * Deletes all history
    */
-  deleteAll: () => getStore().deleteAll(),
+  deleteAll: () =>
+    runLocalDataClear(() =>
+      withHistoryStorage(
+        async (store) => {
+          await store.deleteAll();
+          await getInMemoryStore().deleteAll();
+        },
+        (store) => store.deleteAll()
+      )
+    ),
 
   /**
    * Gets entry count
    */
-  getCount: () => getStore().getCount(),
+  getCount: () =>
+    withHistoryStorage(
+      (store) => store.getCount(),
+      (store) => store.getCount()
+    ),
 
   /**
    * Exports history
@@ -552,5 +656,5 @@ export const historyStore = {
   /**
    * Checks if IndexedDB is being used
    */
-  isUsingIndexedDB: () => isIndexedDBAvailable(),
+  isUsingIndexedDB: () => isPersistentStorageActive(),
 };

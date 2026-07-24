@@ -1,23 +1,23 @@
 /**
  * Stripe Customer Portal API
  *
- * Creates a session for the Stripe Customer Portal where users can:
- * - View invoices and payment history
- * - Update payment method
- * - Cancel subscription (for monthly plans)
+ * Uses the ATS-dedicated customer mapping and verifies its provider metadata
+ * before creating a portal session.
  */
 
 import { NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import {
+  getBillingReturnUrls,
+  getCanonicalAppOrigin,
+} from '@/lib/billing/appUrl';
+import { isAtsDedicatedCustomer } from '@/lib/billing/stripeObjectScope';
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    // Get the return URL from the request body
-    const { returnUrl } = await request.json().catch(() => ({}));
-    const origin = request.headers.get('origin') || '';
-
     // Create Supabase server client
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -47,30 +47,45 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get user's Stripe customer ID from profiles
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('stripe_customer_id')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile?.stripe_customer_id) {
+    const { data: mapping, error: mappingError } =
+      await createServiceRoleClient()
+        .from('stripe_customers')
+        .select('customer_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+    if (mappingError || !mapping?.customer_id) {
       return NextResponse.json(
-        { error: 'No billing account found. You need an active subscription first.' },
-        { status: 400 }
+        { error: 'No Jalanea ATS billing account was found.' },
+        { status: 404, headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
-    // Create Stripe Customer Portal session
     const stripe = getStripe();
+    const customer = await stripe.customers.retrieve(mapping.customer_id);
+    if (
+      customer.deleted ||
+      !isAtsDedicatedCustomer({
+        metadata: customer.metadata,
+        authenticatedUserId: user.id,
+      })
+    ) {
+      return NextResponse.json(
+        { error: 'The Jalanea ATS billing account could not be verified.' },
+        { status: 409, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const session = await stripe.billingPortal.sessions.create({
-      customer: profile.stripe_customer_id,
-      return_url: returnUrl || `${origin}/account`,
+      customer: customer.id,
+      return_url: getBillingReturnUrls(getCanonicalAppOrigin()).portalReturn,
     });
 
-    return NextResponse.json({ url: session.url });
-  } catch (error) {
-    console.error('Billing portal error:', error);
+    return NextResponse.json(
+      { url: session.url },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  } catch {
+    console.error('Billing portal request failed');
     return NextResponse.json(
       { error: 'Failed to create billing portal session' },
       { status: 500 }

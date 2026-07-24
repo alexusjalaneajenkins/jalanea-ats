@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -45,3 +46,10 @@ test-resumes/
 testing/
 playwright-report/
 test-results/
+
+# local Supabase link/runtime state
+supabase/.temp/
+
+# local agent/browser artifacts
+.playwright-cli/
+output/

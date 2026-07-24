@@ -7,80 +7,79 @@
 
 import type { ParsedResume, ParsedJobDescription, SectionMatchItem, SectionMatchLayerResult } from './types';
 
-function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s\-\/\+\#\.]/g, ' ').replace(/\s+/g, ' ').trim();
+const TERM_ALIAS_GROUPS = [
+  ['react', 'reactjs', 'react.js'],
+  ['javascript', 'js'],
+  ['typescript', 'ts'],
+  ['nodejs', 'node.js'],
+  ['vue', 'vuejs', 'vue.js'],
+  ['postgresql', 'postgres'],
+  ['sql', 'structured query language'],
+  ['r', 'r language', 'r programming'],
+  ['cplusplus', 'c++'],
+  ['csharp', 'c#'],
+  ['dotnet', '.net'],
+] as const;
+
+export function normalizeSkillTerm(text: string): string {
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/(^|[^a-z0-9])\.net\b/g, '$1 dotnet ')
+    .replace(/\bc\s*\+\s*\+/g, ' cplusplus ')
+    .replace(/\bc\s*#/g, ' csharp ')
+    .replace(/\breact\s*\.?\s*js\b/g, ' reactjs ')
+    .replace(/\bnode\s*\.?\s*js\b/g, ' nodejs ')
+    .replace(/\bvue\s*\.?\s*js\b/g, ' vuejs ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-/** Extract acronyms from parentheses: "Applied Behavior Analysis (ABA)" → ["aba"] */
-function extractAcronyms(text: string): string[] {
-  const matches = text.match(/\(([A-Za-z]{2,})\)/g) || [];
-  return matches.map(m => m.replace(/[()]/g, '').toLowerCase());
+function aliasCandidates(normalizedTerm: string): string[] {
+  for (const group of TERM_ALIAS_GROUPS) {
+    const normalizedGroup = group.map(normalizeSkillTerm);
+    if (normalizedGroup.includes(normalizedTerm)) {
+      return [...new Set(normalizedGroup)];
+    }
+  }
+  return [normalizedTerm];
 }
 
-/** Extract the core skill name, stripping qualifiers and experience requirements */
-const NOISE_WORDS = new Set([
-  'experience', 'knowledge', 'proficiency', 'familiarity', 'with',
-  'in', 'of', 'or', 'and', 'the', 'a', 'an', 'year', 'years',
-  'minimum', 'required', 'preferred', 'strong', 'demonstrated',
-  'proven', 'ability', 'to', 'working', 'using',
-]);
+export function matchesSkillTerm(text: string, searchTerm: string): boolean {
+  const normalizedText = normalizeSkillTerm(text);
+  const normalizedTerm = normalizeSkillTerm(searchTerm);
+  if (!normalizedText || !normalizedTerm) return false;
 
-function getCoreTerms(text: string): string[] {
-  return normalize(text).split(' ')
-    .filter(t => t.length > 1 && !NOISE_WORDS.has(t) && !/^\d+$/.test(t));
+  const paddedText = ` ${normalizedText} `;
+  return aliasCandidates(normalizedTerm).some((candidate) =>
+    paddedText.includes(` ${candidate} `)
+  );
 }
 
 function findInStrings(items: string[], searchTerm: string): { found: boolean; match?: string } {
-  const norm = normalize(searchTerm);
-  const acronyms = extractAcronyms(searchTerm);
-  const coreTerms = getCoreTerms(searchTerm);
-  
   for (const item of items) {
-    const normItem = normalize(item);
-    const itemAcronyms = extractAcronyms(item);
-    
-    // Direct substring match (either direction — item in search or search in item)
-    if (normItem.includes(norm) || norm.includes(normItem)) return { found: true, match: item };
-    
-    // Acronym match: "ABA" from search found in item, or item's acronym in search
-    if (acronyms.some(a => normItem === a || normItem.includes(a))) return { found: true, match: item };
-    if (itemAcronyms.some(a => norm.includes(a))) return { found: true, match: item };
-    
-    // Core terms: if most core terms (>= 60%) are present in the item
-    if (coreTerms.length > 0) {
-      const matchCount = coreTerms.filter(t => normItem.includes(t)).length;
-      if (matchCount >= Math.max(1, Math.ceil(coreTerms.length * 0.6))) return { found: true, match: item };
+    if (matchesSkillTerm(item, searchTerm)) {
+      return { found: true, match: item };
     }
-    
-    // Reverse: item's core words found in the search term (handles short items matching verbose searches)
-    const itemCoreTerms = getCoreTerms(item);
-    if (itemCoreTerms.length > 0 && itemCoreTerms.every(t => norm.includes(t))) return { found: true, match: item };
   }
   return { found: false };
 }
 
 function findInBullets(workHistory: ParsedResume['workHistory'], searchTerm: string): { found: boolean; match?: string } {
-  const norm = normalize(searchTerm);
-  const acronyms = extractAcronyms(searchTerm);
-  const coreTerms = getCoreTerms(searchTerm);
-  
   for (const job of workHistory) {
     for (const bullet of job.bullets) {
-      const normBullet = normalize(bullet);
-      // Direct match
-      if (normBullet.includes(norm)) return { found: true, match: `[${job.title}] ${bullet}` };
-      // Acronym match
-      if (acronyms.some(a => normBullet.includes(a))) return { found: true, match: `[${job.title}] ${bullet}` };
-      // Core terms match (>= 60%)
-      if (coreTerms.length > 0) {
-        const matchCount = coreTerms.filter(t => normBullet.includes(t)).length;
-        if (matchCount >= Math.max(1, Math.ceil(coreTerms.length * 0.6))) return { found: true, match: `[${job.title}] ${bullet}` };
+      if (matchesSkillTerm(bullet, searchTerm)) {
+        return { found: true, match: `[${job.title}] ${bullet}` };
       }
     }
     // Also check job title
-    const normTitle = normalize(job.title);
-    if (normTitle.includes(norm)) return { found: true, match: `Job title: ${job.title} at ${job.company}` };
-    if (acronyms.some(a => normTitle.includes(a))) return { found: true, match: `Job title: ${job.title} at ${job.company}` };
+    if (matchesSkillTerm(job.title, searchTerm)) {
+      return {
+        found: true,
+        match: `Job title: ${job.title} at ${job.company}`,
+      };
+    }
   }
   return { found: false };
 }
@@ -97,7 +96,7 @@ function searchAllSections(resume: ParsedResume, term: string): { section: strin
   const bulletResult = findInBullets(resume.workHistory, term);
   if (bulletResult.found) return { section: 'experience', match: bulletResult.match! };
   // Summary
-  if (resume.summary && normalize(resume.summary).includes(normalize(term))) {
+  if (resume.summary && matchesSkillTerm(resume.summary, term)) {
     return { section: 'summary', match: resume.summary.slice(0, 120) };
   }
   // Education
@@ -165,13 +164,18 @@ export function runSectionMatching(
   const prefTotal = preferredMatches.length;
   const prefBonus = prefTotal > 0 ? (prefFound / prefTotal) * 10 : 0;
 
-  const baseScore = maxWeight > 0 ? (totalWeight / maxWeight) * 100 : 100;
-  const score = Math.round(Math.min(baseScore + prefBonus, 100));
+  const score =
+    maxWeight > 0
+      ? Math.round(
+          Math.min((totalWeight / maxWeight) * 100 + prefBonus, 100)
+        )
+      : null;
 
   return {
     matches,
     preferredMatches,
     score,
+    evidenceStatus: score === null ? 'not-evaluated' : 'evaluated',
     foundCount: matches.filter(m => m.found).length,
     totalRequired,
   };

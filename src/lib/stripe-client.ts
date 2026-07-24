@@ -1,25 +1,9 @@
 /**
  * Client-side Stripe Configuration
  *
- * Uses @stripe/stripe-js for browser-side operations.
- * Only for redirecting to Checkout, never for API calls.
+ * Checkout sessions are created on the server. The browser only follows the
+ * provider-hosted URL returned by that trusted endpoint.
  */
-
-import { loadStripe, Stripe } from '@stripe/stripe-js';
-
-let stripePromise: Promise<Stripe | null>;
-
-export function getStripe() {
-  if (!stripePromise) {
-    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (!key) {
-      console.warn('Stripe publishable key not configured');
-      return Promise.resolve(null);
-    }
-    stripePromise = loadStripe(key);
-  }
-  return stripePromise;
-}
 
 /**
  * Redirect to Stripe Checkout

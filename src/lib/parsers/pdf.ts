@@ -7,20 +7,18 @@
 
 import { ResumeArtifact, ExtractionMeta, PdfLayoutSignals } from '../types/session';
 import {
-  ParsedPdf,
   ParsedPdfPage,
   PdfTextItem,
   PdfParseOptions,
   ParserWarning,
 } from './types';
+import { reconstructPdfPageText } from './pdfText';
 
 // PDF.js types - use `any` to avoid version-specific type incompatibilities
 // The actual types from pdfjs-dist change between versions, so we use
 // loose typing here and ensure the runtime code works correctly.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type PDFDocumentProxy = any;
-type PDFPageProxy = any;
-type TextContent = any;
 type TextItem = {
   str: string;
   transform: number[];
@@ -97,16 +95,7 @@ export async function parsePdf(
         transform: item.transform,
       }));
 
-      // Combine text in reading order (top to bottom, left to right)
-      const sortedItems = [...items].sort((a, b) => {
-        // Sort by Y (descending - PDF coordinates start at bottom)
-        // then by X (ascending)
-        const yDiff = b.y - a.y;
-        if (Math.abs(yDiff) > 5) return yDiff; // 5pt tolerance for same line
-        return a.x - b.x;
-      });
-
-      const pageText = sortedItems.map((item) => item.str).join(' ');
+      const pageText = reconstructPdfPageText(items, viewport.width);
 
       pages.push({
         pageNumber: i,
@@ -180,12 +169,10 @@ async function loadPdfJs() {
   // Dynamic import for client-side only
   const pdfjsLib = await import('pdfjs-dist');
 
-  // Use a worker URL that always matches the currently loaded PDF.js version.
-  // This prevents API/Worker version mismatches after dependency updates.
+  // The worker is copied from this project's installed pdfjs-dist package so
+  // parsing works offline and the API/worker versions stay in lockstep.
   if (typeof window !== 'undefined') {
-    const version = typeof pdfjsLib.version === 'string' ? pdfjsLib.version : '5.4.530';
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
   }
 
   return pdfjsLib;
@@ -337,8 +324,6 @@ function analyzeColumnStreams(
   // For true multi-column: we need significant content starting in right regions
   // Check if there are text items consistently starting in the right half
   const itemsInRightHalf = items.filter((item) => item.x > pageCenter);
-  const itemsInLeftHalf = items.filter((item) => item.x <= pageCenter);
-
   // Calculate the ratio of content in each half
   const rightHalfRatio = itemsInRightHalf.length / items.length;
 
@@ -359,9 +344,6 @@ function analyzeColumnStreams(
     if (rowItems.length < 2) return;
 
     const sortedByX = [...rowItems].sort((a, b) => a.x - b.x);
-    const leftMost = sortedByX[0];
-    const rightMost = sortedByX[sortedByX.length - 1];
-
     // Check if there's a significant gap in the middle of this row
     for (let i = 1; i < sortedByX.length; i++) {
       const gap = sortedByX[i].x - (sortedByX[i - 1].x + sortedByX[i - 1].width);
