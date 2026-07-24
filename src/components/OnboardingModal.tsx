@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Key, Upload, FileText, BarChart3, Sparkles, ChevronRight } from 'lucide-react';
+import { Dialog } from '@/components/ui/Dialog';
 
 const ONBOARDING_STORAGE_KEY = 'jalanea-onboarding-seen';
 
@@ -15,13 +16,13 @@ const steps = [
   {
     icon: <Key className="w-6 h-6" />,
     title: 'Start with Free AI',
-    description: 'Run up to 3 free AI analyses per day with the built-in demo. Add your own Gemini key anytime for unlimited use.',
+    description: 'Run up to 3 free AI analyses per day with the built-in demo. Eligible signed-in members can optionally add their own Gemini key.',
     color: 'from-amber-500 to-orange-500',
   },
   {
     icon: <Upload className="w-6 h-6" />,
     title: 'Upload Your Resume',
-    description: 'Drag and drop your PDF or DOCX resume. Everything is processed locally in your browser.',
+    description: 'Drag and drop your PDF or DOCX resume. File parsing starts locally; AI text sharing happens only after you consent.',
     color: 'from-blue-500 to-cyan-500',
   },
   {
@@ -51,7 +52,6 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
   // Check if user has seen onboarding
   useEffect(() => {
     if (forceShow) {
-      setIsOpen(true);
       return;
     }
 
@@ -92,23 +92,15 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={handleSkip}
-          />
-
-          {/* Modal */}
-          <motion.div
+    <Dialog
+      isOpen={forceShow || isOpen}
+      onClose={handleSkip}
+      labelledBy="onboarding-dialog-title"
+      describedBy="onboarding-step-description"
+    >
+      <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             className="relative w-full max-w-md bg-gradient-to-br from-indigo-950 via-indigo-900 to-purple-950 rounded-3xl border border-indigo-500/30 shadow-2xl overflow-hidden"
           >
@@ -131,11 +123,14 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
               >
                 <Sparkles className="w-8 h-8 text-white" />
               </motion.div>
-              <h2 className="text-2xl font-black text-white mb-2">
+              <h2
+                id="onboarding-dialog-title"
+                className="text-2xl font-black text-white mb-2"
+              >
                 Welcome to Jalanea ATS
               </h2>
               <p className="text-sm text-indigo-300">
-                Let's get you started in 4 simple steps
+                Let&apos;s get you started in 4 simple steps
               </p>
             </div>
 
@@ -145,15 +140,21 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
                 <button
                   key={index}
                   onClick={() => setCurrentStep(index)}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    index === currentStep
-                      ? 'w-6 bg-gradient-to-r from-orange-500 to-pink-500'
-                      : index < currentStep
-                        ? 'bg-emerald-500'
-                        : 'bg-indigo-700'
-                  }`}
+                  className="flex h-11 w-11 items-center justify-center"
                   aria-label={`Go to step ${index + 1}`}
-                />
+                  aria-current={index === currentStep ? 'step' : undefined}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-2 rounded-full transition-all ${
+                      index === currentStep
+                        ? 'w-6 bg-gradient-to-r from-orange-500 to-pink-500'
+                        : index < currentStep
+                          ? 'w-2 bg-emerald-500'
+                          : 'w-2 bg-indigo-700'
+                    }`}
+                  />
+                </button>
               ))}
             </div>
 
@@ -174,7 +175,10 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
                   <h3 className="text-lg font-bold text-white mb-2">
                     Step {currentStep + 1}: {steps[currentStep].title}
                   </h3>
-                  <p className="text-sm text-indigo-300 leading-relaxed">
+                  <p
+                    id="onboarding-step-description"
+                    className="text-sm text-indigo-300 leading-relaxed"
+                  >
                     {steps[currentStep].description}
                   </p>
                 </motion.div>
@@ -203,10 +207,8 @@ export function OnboardingModal({ forceShow = false }: OnboardingModalProps) {
                 )}
               </button>
             </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+      </motion.div>
+    </Dialog>
   );
 }
 

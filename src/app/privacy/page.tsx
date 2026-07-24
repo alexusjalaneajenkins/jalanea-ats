@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { PUBLIC_SUPPORT_EMAIL } from '@/lib/contact/publicSupport';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy - Jalanea ATS',
-  description: 'Learn how Jalanea ATS protects your privacy with on-device processing and zero data collection by default.',
+  description: 'Learn how Jalanea ATS handles local resume parsing and consent-based AI processing.',
 };
 
 export default function PrivacyPolicyPage() {
@@ -11,8 +12,9 @@ export default function PrivacyPolicyPage() {
     { id: 'introduction', label: 'Introduction' },
     { id: 'on-device-processing', label: 'On-Device Processing' },
     { id: 'local-storage', label: 'Local Storage' },
-    { id: 'byok-mode', label: 'BYOK Mode' },
+    { id: 'ai-processing', label: 'AI Processing' },
     { id: 'api-key-handling', label: 'API Key Handling' },
+    { id: 'service-data', label: 'Service Data' },
     { id: 'what-we-dont-collect', label: 'What We Do Not Collect' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'your-rights', label: 'Your Rights' },
@@ -43,18 +45,18 @@ export default function PrivacyPolicyPage() {
         <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
           Privacy Policy
         </h1>
-        <p className="text-gray-400 mb-8">Last updated: January 2026</p>
+        <p className="text-gray-400 mb-8">Last updated: July 2026</p>
 
         <div className="prose prose-invert prose-lg max-w-none space-y-8">
           {/* TL;DR */}
           <section className="bg-indigo-950/30 border border-indigo-800/50 rounded-xl p-6">
             <h2 className="text-xl font-semibold text-indigo-300 mt-0 mb-3">TL;DR</h2>
             <ul className="text-gray-300 space-y-2 mb-0">
-              <li><strong>Your resume never leaves your device</strong> in default mode</li>
-              <li><strong>No accounts required</strong> &mdash; no email, no sign-up</li>
+              <li><strong>Your resume file stays on your device</strong> during local parsing</li>
+              <li><strong>No account is required for local analysis or the free demo</strong>; paid and BYOK access use an account</li>
               <li><strong>No tracking or analytics</strong> by default</li>
               <li><strong>You control your data</strong> &mdash; delete it anytime</li>
-              <li><strong>BYOK mode</strong> sends data to your chosen AI provider, not us</li>
+              <li><strong>AI features require consent</strong> before resume text is sent to Google Gemini</li>
             </ul>
           </section>
 
@@ -87,8 +89,8 @@ export default function PrivacyPolicyPage() {
           <section id="on-device-processing" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">On-Device Processing (Default Mode)</h2>
             <p className="text-gray-300">
-              By default, Jalanea ATS processes your resume <strong>entirely within your browser</strong>.
-              This means:
+              Jalanea ATS parses your resume file <strong>entirely within your browser</strong> before
+              any optional AI processing. This means:
             </p>
             <ul className="text-gray-300 space-y-2">
               <li>
@@ -100,8 +102,8 @@ export default function PrivacyPolicyPage() {
                 analysis results on any server.
               </li>
               <li>
-                <strong>No network requests with your data:</strong> In default mode, no personal
-                information from your documents is transmitted over the internet.
+                <strong>Consent before AI sharing:</strong> Resume and job-description text is not
+                sent to Google Gemini unless you explicitly enable AI features.
               </li>
             </ul>
           </section>
@@ -124,30 +126,37 @@ export default function PrivacyPolicyPage() {
               </li>
             </ul>
             <p className="text-gray-300">
-              You can delete all locally stored data at any time using the &quot;Delete All History&quot;
-              option in the application, or by clearing your browser&apos;s site data.
+              This browser storage is not encrypted by Jalanea. Anyone with access to your unlocked
+              device or browser profile may be able to read it. If IndexedDB is unavailable, some
+              sessions may use temporary in-memory storage and disappear when the page closes.
+            </p>
+            <p className="text-gray-300">
+              You can delete all ATS data stored by this browser at any time using the
+              &quot;Clear all local ATS data&quot; option, or by clearing this site&apos;s browser data.
+              Removing Jalanea ATS from the Account page performs the same local cleanup after the
+              server confirms that product-scoped removal completed.
             </p>
           </section>
 
-          {/* BYOK Mode */}
-          <section id="byok-mode" className={sectionClass}>
-            <h2 className="text-2xl font-semibold text-white">Bring Your Own Key (BYOK) Mode</h2>
+          {/* AI Processing */}
+          <section id="ai-processing" className={sectionClass}>
+            <h2 className="text-2xl font-semibold text-white">AI Processing and BYOK Mode</h2>
             <p className="text-gray-300">
-              BYOK mode is an optional feature that uses third-party AI services (like Google Gemini)
-              to provide enhanced analysis. <strong>This is the only mode where your data leaves your device.</strong>
+              AI analysis is optional and uses Google Gemini. Before an AI request is made, you must
+              explicitly consent to sending your resume text and job description to Google for processing.
             </p>
             <div className="bg-amber-950/30 border border-amber-700/50 rounded-lg p-4 my-4">
-              <p className="text-amber-200 font-medium mb-2">When you enable BYOK mode:</p>
+              <p className="text-amber-200 font-medium mb-2">When you enable AI features:</p>
               <ul className="text-amber-100/80 space-y-1 text-sm">
-                <li>Your resume text and job description are sent to your chosen AI provider</li>
-                <li>The data goes directly from your browser to the provider &mdash; not through our servers</li>
-                <li>You are responsible for reviewing the provider&apos;s privacy policy</li>
-                <li>You provide your own API key; we never see or store it on our servers</li>
+                <li>Your resume text and job description are sent to Google Gemini</li>
+                <li>Free and paid-plan requests pass through Jalanea&apos;s server without being stored there</li>
+                <li>BYOK requests go directly from your browser to Google Gemini</li>
+                <li>Your BYOK API key remains in your browser and is never sent to Jalanea</li>
               </ul>
             </div>
             <p className="text-gray-300">
-              Before using BYOK mode, you must explicitly consent to data sharing. You can revoke
-              this consent at any time by disabling BYOK mode.
+              You can revoke consent by disabling AI features. Local parsing and non-AI analysis
+              remain available without sharing document text with Google.
             </p>
           </section>
 
@@ -155,54 +164,70 @@ export default function PrivacyPolicyPage() {
           <section id="api-key-handling" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">API Key Handling</h2>
             <p className="text-gray-300">
-              If you use BYOK mode, your API key is handled with care:
+              BYOK is not part of the anonymous free tier. It requires a signed-in account with
+              verified paid ATS access; an account with an explicit complimentary administrative
+              grant may also qualify. If you use BYOK mode, your API key is handled as follows:
             </p>
             <ul className="text-gray-300 space-y-2">
               <li>
-                <strong>Session storage (default):</strong> Your API key is stored only in browser
-                memory and is cleared when you close the tab.
-              </li>
-              <li>
-                <strong>Local storage (optional):</strong> If you choose to save your key, it is
-                stored in your browser&apos;s localStorage. We recommend using session-only storage.
+                <strong>Browser persistence:</strong> Your selected provider configuration and API
+                key are stored in IndexedDB for the signed-in account on that browser.
               </li>
               <li>
                 <strong>Never transmitted to Jalanea:</strong> Your API key is sent directly to
                 your chosen AI provider and is never sent to our servers.
               </li>
+              <li>
+                <strong>Not encrypted by the app:</strong> Jalanea does not encrypt the key before
+                browser storage. Remove it in AI settings and avoid saving it on shared devices.
+              </li>
             </ul>
+          </section>
+
+          <section id="service-data" className={sectionClass}>
+            <h2 className="text-2xl font-semibold text-white">Account, Billing, Contact, and Abuse-Prevention Data</h2>
+            <p className="text-gray-300">
+              Supabase processes your sign-in email, shared account identity, ATS entitlement, and
+              product-scoped account state. Stripe processes checkout and retains customer,
+              subscription, invoice, and payment records under its policies and legal obligations.
+            </p>
+            <p className="text-gray-300">
+              If you use the contact form, your name, email, subject, and message are submitted to
+              Jalanea through Resend for email delivery. Resend accepting a request does not
+              guarantee final delivery. To limit abuse, we store keyed, hashed request identifiers
+              rather than raw IP addresses. Free-demo counters normally become eligible for
+              deletion after seven days, and fixed-window AI and contact counters after 48 hours;
+              bounded scheduled cleanup removes eligible records over subsequent runs.
+            </p>
           </section>
 
           {/* What We Don't Collect */}
           <section id="what-we-dont-collect" className={sectionClass}>
-            <h2 className="text-2xl font-semibold text-white">What We Don&apos;t Collect</h2>
-            <p className="text-gray-300">We do not collect:</p>
+            <h2 className="text-2xl font-semibold text-white">What We Don&apos;t Store on Jalanea Servers</h2>
+            <p className="text-gray-300">Jalanea servers do not store:</p>
             <ul className="text-gray-300 space-y-1">
               <li>Your resume content or file</li>
               <li>Job descriptions you analyze</li>
-              <li>Personal information (name, email, phone number)</li>
+              <li>Personal information contained in resume or job-description content</li>
               <li>Analysis results or scores</li>
-              <li>API keys or credentials</li>
-              <li>IP addresses (for analytics purposes)</li>
+              <li>BYOK API keys; a saved key remains in that browser&apos;s IndexedDB</li>
+              <li>Raw IP addresses in abuse-prevention counters; keyed, hashed identifiers are used instead</li>
               <li>Detailed browsing behavior</li>
             </ul>
           </section>
 
           {/* Analytics */}
           <section id="analytics" className={sectionClass}>
-            <h2 className="text-2xl font-semibold text-white">Analytics (If Enabled)</h2>
+            <h2 className="text-2xl font-semibold text-white">Analytics and Operational Logs</h2>
             <p className="text-gray-300">
-              We may collect minimal, privacy-preserving analytics to improve the service. If enabled,
-              this includes only:
+              We do not currently use a product-analytics SDK. Our hosting, authentication,
+              payment, AI, and email providers may still create limited technical and security
+              logs when they process a request. Those logs can include request timing, status,
+              provider identifiers, and network information under each provider&apos;s policies.
             </p>
-            <ul className="text-gray-300 space-y-1">
-              <li>Page views (no user identification)</li>
-              <li>Feature usage counts (e.g., &quot;export button clicked&quot;)</li>
-              <li>Error reports (with no personal data)</li>
-            </ul>
             <p className="text-gray-300">
-              Analytics never include your resume content, job descriptions, or any personally
-              identifiable information.
+              Application error messages are designed not to log resume text, job descriptions,
+              contact-message content, API keys, or provider response bodies.
             </p>
           </section>
 
@@ -212,16 +237,19 @@ export default function PrivacyPolicyPage() {
             <p className="text-gray-300">You have the right to:</p>
             <ul className="text-gray-300 space-y-2">
               <li>
-                <strong>Access your data:</strong> All data is stored locally on your device. You
-                can export your analysis history at any time.
+                <strong>Access your data:</strong> Resume history is stored locally on your device
+                and can be exported at any time. Account, entitlement, and usage records are
+                product-scoped server data.
               </li>
               <li>
-                <strong>Delete your data:</strong> Use the &quot;Delete All History&quot; feature or clear
-                your browser&apos;s site data.
+                <strong>Remove ATS data:</strong> Use &quot;Remove Jalanea ATS data&quot; on the Account
+                page to cancel active ATS subscriptions and remove product-scoped access, billing
+                links, usage records, and browser-local ATS data. Your shared sign-in, profile,
+                tutoring records, and Stripe&apos;s payment records remain.
               </li>
               <li>
-                <strong>Opt out of BYOK:</strong> Simply don&apos;t enable the feature, and your data
-                will never leave your device.
+                <strong>Opt out of AI:</strong> Don&apos;t enable AI features, and resume or
+                job-description text will not be sent to Google.
               </li>
             </ul>
           </section>
@@ -230,8 +258,8 @@ export default function PrivacyPolicyPage() {
           <section id="third-party-services" className={sectionClass}>
             <h2 className="text-2xl font-semibold text-white">Third-Party Services</h2>
             <p className="text-gray-300">
-              If you use BYOK mode, your data is processed by third-party AI providers. Please
-              review their privacy policies:
+              If you enable any AI feature, your resume text and job description are processed by
+              Google Gemini. Please review its terms and privacy information:
             </p>
             <ul className="text-gray-300 space-y-1">
               <li>
@@ -246,8 +274,18 @@ export default function PrivacyPolicyPage() {
               </li>
             </ul>
             <p className="text-gray-300 mt-4">
-              We are not responsible for how third-party providers handle your data once it is
-              transmitted to them.
+              Paid plans use Stripe for checkout and billing. Stripe retains customer, payment, and
+              invoice records under its policies and applicable legal obligations. Removing Jalanea
+              ATS data deletes our product-scoped billing links and entitlements; it does not delete
+              records held by Stripe.
+            </p>
+            <p className="text-gray-300 mt-4">
+              Supabase provides shared authentication and stores ATS account and entitlement
+              records. Resend processes contact-form messages so they can reach support.
+            </p>
+            <p className="text-gray-300 mt-4">
+              Third-party providers handle transmitted data under their own terms and privacy
+              policies.
             </p>
           </section>
 
@@ -276,9 +314,12 @@ export default function PrivacyPolicyPage() {
             <p className="text-gray-300">
               If you have questions about this privacy policy or our data practices, please contact us at:
             </p>
-            <p className="text-indigo-400 font-medium">
-              privacy@jalanea.works
-            </p>
+            <a
+              href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
+              className="text-indigo-400 font-medium hover:text-indigo-300"
+            >
+              {PUBLIC_SUPPORT_EMAIL}
+            </a>
           </section>
         </div>
       </main>

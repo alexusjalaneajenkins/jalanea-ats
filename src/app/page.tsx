@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Settings, Gift, User, CreditCard, Lightbulb, FileText, Lock, Zap, Cloud } from 'lucide-react';
+import { Sparkles, Settings, Gift, User, CreditCard, Lightbulb, FileText, Lock, Zap, Cloud, BriefcaseBusiness } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
 import { UploadDropzone } from '@/components/UploadDropzone';
@@ -16,9 +16,9 @@ import { parseTxt, TxtParseError } from '@/lib/parsers/txt';
 import { createSession, ResumeArtifact } from '@/lib/types/session';
 import { sessionStore } from '@/lib/storage/sessionStore';
 import { useLlmConfig } from '@/hooks/useLlmConfig';
-import { useFreeTier } from '@/hooks/useFreeTier';
 import { ByokKeyModal } from '@/components/ByokKeyModal';
 import { ConsentModal } from '@/components/ConsentModal';
+import { hasVerifiedPaidAccess } from '@/lib/analysis/availability';
 
 /**
  * Home Page - Main entry point for Jalanea ATS
@@ -34,29 +34,30 @@ export default function HomePage() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
 
-  // API key configuration
-  const { config: llmConfig, updateConfig, setConsent } = useLlmConfig();
+  // Auth and owner-scoped API key configuration
+  const {
+    user,
+    hasAccess,
+    isAuthLoading,
+    isEntitlementLoading,
+    accessError,
+  } = useAuth();
+  const {
+    config: llmConfig,
+    isLoading: isLlmConfigLoading,
+    updateConfig,
+    setConsent,
+  } = useLlmConfig(
+    user?.id ?? null
+  );
 
-  // Free tier status
-  const freeTier = useFreeTier();
-
-  // Auth status
-  const { user, hasAccess, isLoading: isAuthLoading } = useAuth();
-  const canUseByok = !!user && hasAccess;
+  const hasVerifiedAccess = hasVerifiedPaidAccess({
+    hasAccess,
+    isEntitlementLoading,
+    accessError,
+  });
+  const canUseByok = !!user && hasVerifiedAccess;
   const hasByokConfigured = canUseByok && !!(llmConfig?.apiKey && llmConfig?.hasConsented);
-
-  // Enforce hard gate: clear BYOK key if user is not authenticated with active subscription.
-  useEffect(() => {
-    if (isAuthLoading || canUseByok || !llmConfig) return;
-    if (!llmConfig.apiKey && !llmConfig.hasConsented) return;
-
-    void updateConfig({
-      ...llmConfig,
-      apiKey: '',
-      hasConsented: false,
-      consentTimestamp: undefined,
-    });
-  }, [isAuthLoading, canUseByok, llmConfig, updateConfig]);
 
   // Progress tracking for "continue where you left off"
   const {
@@ -74,13 +75,10 @@ export default function HomePage() {
       ? {
           ...newConfig,
           apiKey: '',
-          hasConsented: false,
-          consentTimestamp: undefined,
         }
       : newConfig;
 
     await updateConfig(gatedConfig);
-    setShowKeyModal(false);
     if (gatedConfig.apiKey && !gatedConfig.hasConsented) {
       setShowConsentModal(true);
     }
@@ -109,7 +107,6 @@ export default function HomePage() {
         const isPdf = fileName.endsWith('.pdf') || file.type === 'application/pdf';
         const isDocx =
           fileName.endsWith('.docx') ||
-          fileName.endsWith('.doc') ||
           file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
         const isTxt = fileName.endsWith('.txt') || file.type === 'text/plain';
 
@@ -167,7 +164,7 @@ export default function HomePage() {
         setIsProcessing(false);
       }
     },
-    [router]
+    [router, saveSession]
   );
 
   return (
@@ -225,6 +222,13 @@ export default function HomePage() {
             </span>
           </button>
           {/* Pricing link - consistent with other nav items */}
+          <Link
+            href="/jobs"
+            className="flex items-center justify-center gap-2 text-sm h-9 px-3 sm:px-4 rounded-full border border-indigo-500/30 bg-indigo-900/30 text-indigo-200 hover:text-white hover:border-indigo-400/50 transition-colors shrink-0"
+          >
+            <BriefcaseBusiness className="w-4 h-4" />
+            <span className="hidden sm:inline">Find Jobs</span>
+          </Link>
           {!hasAccess && (
             <Link
               href="/pricing"
@@ -324,8 +328,9 @@ export default function HomePage() {
             transition={{ delay: 0.2 }}
             className="text-base sm:text-lg text-indigo-300 max-w-xl mx-auto"
           >
-            See exactly how ATS software reads your resume. All processing happens{' '}
-            <span className="text-orange-400 font-medium">locally in your browser</span>.
+            See exactly how ATS software reads your resume. Core parsing happens{' '}
+            <span className="text-orange-400 font-medium">locally in your browser</span>;
+            AI analysis shares text with Google Gemini only after consent.
           </motion.p>
           {/* Feature badges row - visible on all screen sizes */}
           <motion.div
@@ -411,9 +416,7 @@ export default function HomePage() {
                 '.pdf',
                 'application/pdf',
                 '.docx',
-                '.doc',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/msword',
                 '.txt',
                 'text/plain',
               ]}
@@ -444,7 +447,7 @@ export default function HomePage() {
             <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-4 text-center min-w-[260px] snap-start">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">1</div>
               <h3 className="text-base font-bold text-white mb-1">Upload your resume</h3>
-              <p className="text-sm text-indigo-300">PDF, DOCX, or TXT. Everything stays in your browser.</p>
+              <p className="text-sm text-indigo-300">PDF, DOCX, or TXT. Files stay local; AI text sharing requires consent.</p>
             </div>
             <div className="bg-indigo-900/30 backdrop-blur-sm rounded-2xl border border-indigo-500/20 p-4 text-center min-w-[260px] snap-start">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 flex items-center justify-center mx-auto mb-3 text-white font-bold">2</div>
@@ -469,6 +472,9 @@ export default function HomePage() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-indigo-500">
             <span className="font-medium">Jalanea ATS</span>
             <div className="flex items-center gap-4">
+              <Link href="/jobs" className="hover:text-indigo-300 transition-colors">
+                Find Jobs
+              </Link>
               <Link href="/privacy" className="hover:text-indigo-300 transition-colors">
                 Privacy
               </Link>
@@ -490,8 +496,9 @@ export default function HomePage() {
         onSave={handleSaveLlmConfig}
         currentConfig={llmConfig || undefined}
         isAuthenticated={!!user}
-        hasActiveSubscription={hasAccess}
-        isAuthLoading={isAuthLoading}
+        hasActiveSubscription={canUseByok}
+        isAuthLoading={isAuthLoading || isEntitlementLoading}
+        isConfigLoading={isLlmConfigLoading}
       />
 
       {/* Consent Modal */}

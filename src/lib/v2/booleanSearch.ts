@@ -28,43 +28,59 @@ function flattenResume(resume: ParsedResume): string {
   return normalize(parts.join(' '));
 }
 
+function containsSearchTerm(fullText: string, normalizedTerm: string): boolean {
+  if (!normalizedTerm) return false;
+  if (normalizedTerm.includes(' ')) {
+    return fullText.includes(normalizedTerm);
+  }
+  return ` ${fullText} `.includes(` ${normalizedTerm} `);
+}
+
 export function runBooleanSearch(
   resume: ParsedResume,
   booleanSearchTerms: string[]
 ): BooleanSearchLayerResult {
-  if (booleanSearchTerms.length === 0) {
+  const uniqueTerms = booleanSearchTerms
+    .map((term) => ({ term: term.trim(), normalized: normalize(term) }))
+    .filter((term) => term.term && term.normalized)
+    .filter(
+      (term, index, all) =>
+        all.findIndex((candidate) => candidate.normalized === term.normalized) ===
+        index
+    );
+
+  if (uniqueTerms.length === 0) {
     return {
       searchString: '(no search terms)',
       termResults: [],
-      score: 100,
-      wouldSurface: true,
+      score: 0,
+      evidenceStatus: 'not-evaluated',
+      wouldSurface: null,
     };
   }
 
   const fullText = flattenResume(resume);
-  const termResults = booleanSearchTerms.map(term => {
-    const normTerm = normalize(term);
-    // Check for multi-word phrase match and individual word match
-    const found = fullText.includes(normTerm) ||
-      (normTerm.split(' ').length > 1 && normTerm.split(' ').every(w => w.length > 2 && fullText.includes(w)));
-    return { term, found, isAndTerm: true }; // All terms treated as AND by default
+  const termResults = uniqueTerms.map(({ term, normalized }) => {
+    const found = containsSearchTerm(fullText, normalized);
+    return { term, found, isAndTerm: true };
   });
 
   // Build the display search string
-  const searchString = booleanSearchTerms.map(t => `"${t}"`).join(' AND ');
+  const searchString = uniqueTerms.map(({ term }) => `"${term}"`).join(' AND ');
 
   // Score: percentage of terms found, AND terms weighted more
   const foundCount = termResults.filter(t => t.found).length;
   const total = termResults.length;
   const score = Math.round((foundCount / total) * 100);
 
-  // Would surface = at least 60% of terms found (recruiter searches are forgiving)
-  const wouldSurface = score >= 60;
+  // The displayed expression uses AND, so every term must match.
+  const wouldSurface = termResults.every((term) => term.found);
 
   return {
     searchString,
     termResults,
     score,
+    evidenceStatus: 'evaluated',
     wouldSurface,
   };
 }

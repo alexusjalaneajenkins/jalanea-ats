@@ -3,6 +3,12 @@ import { createServerClient } from '@supabase/ssr';
 import { generateATSAnalysis } from '@/lib/ai/gemini';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { parseATSAnalysisResponse } from '@/lib/ai/parseATSAnalysis';
+import {
+  createFreeTierIdentityHash,
+  consumeDurableFreeTierQuota,
+  FreeTierQuotaUnavailableError,
+  hasRequiredFreeTierIdentitySalt,
+} from '@/lib/ai/freeTierQuota';
 
 // Increase function timeout ceiling for slower model responses on long inputs.
 export const maxDuration = 60;
@@ -10,8 +16,8 @@ export const maxDuration = 60;
 /**
  * Free tier daily usage tracking.
  *
- * Uses Supabase `free_tier_usage` table for persistence across deploys.
- * Falls back to in-memory Map if Supabase is unavailable.
+ * Uses Supabase `free_tier_usage` for persistence across deploys. Quota
+ * failures fail closed; process memory is never a production fallback.
  *
  * The GEMINI_API_KEY environment variable should be set in Vercel (not in code).
  */
@@ -20,13 +26,11 @@ const FREE_TIER_DAILY_LIMIT = 3;
 const MAX_RESUME_CHARS = 30000;
 const MAX_JOB_DESCRIPTION_CHARS = 20000;
 const IDENTITY_VERSION = 'v3';
-const OWNER_UNLIMITED_EMAILS = new Set([
-  'alexxusjenkins91@gmail.com',
-]);
-type StorageMode = 'supabase' | 'memory' | 'unknown';
+type StorageMode = 'supabase' | 'unknown';
 
-// In-memory fallback (used only if Supabase is unavailable)
-const fallbackMap = new Map<string, { date: string; count: number }>();
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : 'UnknownError';
+}
 
 interface PreparedInput {
   text: string;
@@ -120,14 +124,12 @@ function getResetAt(): string {
   return tomorrow.toISOString();
 }
 
-/** Hash identity seed with SHA-256 so we never store raw fingerprint values */
-async function hashIdentity(seed: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const salt = process.env.FREE_TIER_IDENTITY_SALT || '_jalanea_salt';
-  const data = encoder.encode(`${seed}${salt}`);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+/** Key the request fingerprint so raw request signals are never stored. */
+function hashIdentity(seed: string): string {
+  return createFreeTierIdentityHash(
+    seed,
+    process.env.FREE_TIER_IDENTITY_SALT ?? ''
+  );
 }
 
 /** Check if Supabase is configured for free tier tracking */
@@ -135,13 +137,17 @@ function hasSupabaseConfig(): boolean {
   return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-function hasAuthCookieConfig(): boolean {
-  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+function hasDurableFreeTierQuotaConfig(): boolean {
+  return (
+    hasSupabaseConfig()
+    && hasRequiredFreeTierIdentitySalt(
+      process.env.FREE_TIER_IDENTITY_SALT
+    )
+  );
 }
 
-function isOwnerUnlimitedEmail(email?: string | null): boolean {
-  if (!email) return false;
-  return OWNER_UNLIMITED_EMAILS.has(email.trim().toLowerCase());
+function hasAuthCookieConfig(): boolean {
+  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 }
 
 function createRequestSupabaseClient(request: NextRequest) {
@@ -164,7 +170,7 @@ function createRequestSupabaseClient(request: NextRequest) {
   });
 }
 
-async function hasOwnerUnlimitedBypass(request: NextRequest): Promise<boolean> {
+async function hasServerEntitlement(request: NextRequest): Promise<boolean> {
   if (!hasAuthCookieConfig()) return false;
 
   try {
@@ -177,13 +183,32 @@ async function hasOwnerUnlimitedBypass(request: NextRequest): Promise<boolean> {
     } = await supabase.auth.getUser();
 
     if (error) {
-      console.warn('Owner bypass auth lookup failed:', error.message);
+      console.warn('Free-tier entitlement auth lookup failed', {
+        code: error.code,
+      });
       return false;
     }
 
-    return isOwnerUnlimitedEmail(user?.email);
+    if (!user || !hasSupabaseConfig()) return false;
+
+    const adminSupabase = createServiceRoleClient();
+    const { data: hasAccess, error: entitlementError } =
+      await adminSupabase.rpc('has_active_access', {
+        check_user_id: user.id,
+      });
+
+    if (entitlementError) {
+      console.warn('Free-tier entitlement lookup failed', {
+        code: entitlementError.code,
+      });
+      return false;
+    }
+
+    return hasAccess === true;
   } catch (error) {
-    console.warn('Owner bypass lookup failed:', error);
+    console.warn('Free-tier entitlement lookup failed', {
+      errorType: errorName(error),
+    });
     return false;
   }
 }
@@ -207,135 +232,92 @@ async function getUsageFromDB(ipHash: string, today: string): Promise<number> {
   return data?.count ?? 0;
 }
 
-async function incrementUsageInDB(ipHash: string, today: string, currentCount: number): Promise<void> {
-  const supabase = createServiceRoleClient();
-  const { error } = await supabase.from('free_tier_usage').upsert({
-    ip_hash: ipHash,
-    usage_date: today,
-    count: currentCount + 1,
-  });
+// --- Durable atomic quota tracking ---
 
-  if (error) {
-    throw error;
-  }
-}
-
-async function decrementUsageInDB(ipHash: string, today: string): Promise<void> {
-  const supabase = createServiceRoleClient();
-  const { data, error } = await supabase
-    .from('free_tier_usage')
-    .select('count')
-    .eq('ip_hash', ipHash)
-    .eq('usage_date', today)
-    .single();
-
-  if (error && error.code !== 'PGRST116') {
-    throw error;
-  }
-
-  if (data && data.count > 0) {
-    const { error: upsertError } = await supabase.from('free_tier_usage').upsert({
-      ip_hash: ipHash,
-      usage_date: today,
-      count: data.count - 1,
-    });
-
-    if (upsertError) {
-      throw upsertError;
-    }
-  }
-}
-
-// --- Unified tracking (DB with in-memory fallback) ---
-
-async function checkAndIncrementUsage(identityHash: string): Promise<{ allowed: boolean; remaining: number; resetAt: string; storageMode: StorageMode }> {
+async function checkAndIncrementUsage(identitySeed: string): Promise<{
+  identityHash: string;
+  allowed: boolean;
+  remaining: number;
+  resetAt: string;
+  storageMode: StorageMode;
+}> {
   const today = getTodayUTC();
   const resetAt = getResetAt();
 
-  if (hasSupabaseConfig()) {
-    try {
-      const currentCount = await getUsageFromDB(identityHash, today);
+  if (!hasSupabaseConfig()) {
+    throw new FreeTierQuotaUnavailableError();
+  }
 
-      if (currentCount >= FREE_TIER_DAILY_LIMIT) {
-        return { allowed: false, remaining: 0, resetAt, storageMode: 'supabase' };
+  const quota = await consumeDurableFreeTierQuota({
+    identitySeed,
+    identitySalt: process.env.FREE_TIER_IDENTITY_SALT,
+    limit: FREE_TIER_DAILY_LIMIT,
+    async consume(identityHash) {
+      const supabase = createServiceRoleClient();
+      const { data, error } = await supabase.rpc(
+        'consume_free_tier_usage',
+        {
+          p_identity_hash: identityHash,
+          p_usage_date: today,
+          p_limit: FREE_TIER_DAILY_LIMIT,
+        }
+      );
+
+      if (error) {
+        console.error('Atomic free-tier tracking failed', {
+          code: error.code,
+        });
+        throw new FreeTierQuotaUnavailableError();
       }
 
-      await incrementUsageInDB(identityHash, today, currentCount);
-      return {
-        allowed: true,
-        remaining: FREE_TIER_DAILY_LIMIT - currentCount - 1,
-        resetAt,
-        storageMode: 'supabase',
-      };
-    } catch (err) {
-      console.error('Supabase free tier tracking failed, falling back to memory:', err);
-    }
-  }
+      const result = Array.isArray(data) ? data[0] : data;
+      return result ?? null;
+    },
+  });
 
-  // Fallback: in-memory
-  const record = fallbackMap.get(identityHash);
-  if (!record || record.date !== today) {
-    fallbackMap.set(identityHash, { date: today, count: 1 });
-    return { allowed: true, remaining: FREE_TIER_DAILY_LIMIT - 1, resetAt, storageMode: 'memory' };
-  }
-  if (record.count < FREE_TIER_DAILY_LIMIT) {
-    record.count++;
-    return {
-      allowed: true,
-      remaining: FREE_TIER_DAILY_LIMIT - record.count,
-      resetAt,
-      storageMode: 'memory',
-    };
-  }
-  return { allowed: false, remaining: 0, resetAt, storageMode: 'memory' };
+  return {
+    identityHash: quota.identityHash,
+    allowed: quota.allowed,
+    remaining: Math.max(
+      0,
+      FREE_TIER_DAILY_LIMIT - quota.currentCount
+    ),
+    resetAt,
+    storageMode: 'supabase',
+  };
 }
 
 async function getUsageStatus(identityHash: string): Promise<{ used: number; remaining: number; resetAt: string; storageMode: StorageMode }> {
   const today = getTodayUTC();
   const resetAt = getResetAt();
 
-  if (hasSupabaseConfig()) {
-    try {
-      const count = await getUsageFromDB(identityHash, today);
-      return {
-        used: count,
-        remaining: Math.max(0, FREE_TIER_DAILY_LIMIT - count),
-        resetAt,
-        storageMode: 'supabase',
-      };
-    } catch (err) {
-      console.error('Supabase free tier status failed, falling back to memory:', err);
-    }
+  if (!hasSupabaseConfig()) {
+    throw new FreeTierQuotaUnavailableError();
   }
 
-  // Fallback: in-memory
-  const record = fallbackMap.get(identityHash);
-  if (!record || record.date !== today) {
-    return { used: 0, remaining: FREE_TIER_DAILY_LIMIT, resetAt, storageMode: 'memory' };
-  }
+  const count = await getUsageFromDB(identityHash, today);
   return {
-    used: record.count,
-    remaining: Math.max(0, FREE_TIER_DAILY_LIMIT - record.count),
+    used: count,
+    remaining: Math.max(0, FREE_TIER_DAILY_LIMIT - count),
     resetAt,
-    storageMode: 'memory',
+    storageMode: 'supabase',
   };
 }
 
 async function refundUsage(identityHash: string): Promise<void> {
   const today = getTodayUTC();
 
-  if (hasSupabaseConfig()) {
-    try {
-      await decrementUsageInDB(identityHash, today);
-      return;
-    } catch (err) {
-      console.error('Supabase refund failed, falling back to memory:', err);
-    }
+  if (!hasSupabaseConfig()) {
+    throw new FreeTierQuotaUnavailableError();
   }
 
-  // Fallback: in-memory
-  const record = fallbackMap.get(identityHash);
-  if (record) record.count = Math.max(0, record.count - 1);
+  const supabase = createServiceRoleClient();
+  const { error } = await supabase.rpc('refund_free_tier_usage', {
+    p_identity_hash: identityHash,
+    p_usage_date: today,
+  });
+
+  if (error) throw new FreeTierQuotaUnavailableError();
 }
 
 // GET: Check remaining free tier usage
@@ -350,7 +332,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (await hasOwnerUnlimitedBypass(request)) {
+  if (await hasServerEntitlement(request)) {
     return NextResponse.json(
       {
         enabled: false,
@@ -358,7 +340,7 @@ export async function GET(request: NextRequest) {
         used: 0,
         remaining: 0,
         resetAt: getResetAt(),
-        ownerUnlimited: true,
+        paidAccess: true,
       },
       {
         headers: buildFreeTierHeaders({ storageMode: 'unknown' }),
@@ -366,8 +348,32 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const identityHash = await hashIdentity(getIdentitySeed(request));
-  const status = await getUsageStatus(identityHash);
+  if (!hasDurableFreeTierQuotaConfig()) {
+    return NextResponse.json(
+      { error: 'Free tier not available', enabled: false },
+      {
+        status: 503,
+        headers: buildFreeTierHeaders({ storageMode: 'unknown' }),
+      }
+    );
+  }
+
+  let status: Awaited<ReturnType<typeof getUsageStatus>>;
+  try {
+    const identityHash = hashIdentity(getIdentitySeed(request));
+    status = await getUsageStatus(identityHash);
+  } catch (error) {
+    console.error('Free-tier status unavailable', {
+      errorType: errorName(error),
+    });
+    return NextResponse.json(
+      { error: 'Free tier not available', enabled: false },
+      {
+        status: 503,
+        headers: buildFreeTierHeaders({ storageMode: 'unknown' }),
+      }
+    );
+  }
 
   return NextResponse.json(
     {
@@ -393,7 +399,6 @@ export async function POST(request: NextRequest) {
   let usageCounted = false;
   let storageMode: StorageMode = 'unknown';
   let inputTruncated = false;
-  let ownerUnlimited = false;
 
   const safeRefund = async () => {
     if (!usageCounted || !identityHash) return;
@@ -401,11 +406,23 @@ export async function POST(request: NextRequest) {
       await refundUsage(identityHash);
       usageCounted = false;
     } catch (refundError) {
-      console.error('Failed to refund free tier usage:', refundError);
+      console.error('Failed to refund free-tier usage', {
+        errorType: errorName(refundError),
+      });
     }
   };
 
   try {
+    if (request.headers.get('x-ai-consent') !== 'acknowledged') {
+      return NextResponse.json(
+        { error: 'AI data-sharing consent is required' },
+        {
+          status: 428,
+          headers: buildFreeTierHeaders({ storageMode }),
+        }
+      );
+    }
+
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
         { error: 'Free tier not available. Please configure your own API key.' },
@@ -416,37 +433,61 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    ownerUnlimited = await hasOwnerUnlimitedBypass(request);
+    const hasPaidAccess = await hasServerEntitlement(request);
+    if (hasPaidAccess) {
+      return NextResponse.json(
+        {
+          error:
+            'Verified-access accounts must use the advanced analysis route.',
+          code: 'USE_ANALYZE_V2',
+        },
+        {
+          status: 409,
+          headers: buildFreeTierHeaders({ storageMode }),
+        }
+      );
+    }
+
+    if (!hasDurableFreeTierQuotaConfig()) {
+      return NextResponse.json(
+        {
+          error: 'Free-tier request limiting is temporarily unavailable.',
+          code: 'FREE_TIER_QUOTA_UNAVAILABLE',
+        },
+        {
+          status: 503,
+          headers: buildFreeTierHeaders({ storageMode }),
+        }
+      );
+    }
 
     let remaining = 0;
     let resetAt = getResetAt();
 
-    if (!ownerUnlimited) {
-      identityHash = await hashIdentity(getIdentitySeed(request));
-      const usage = await checkAndIncrementUsage(identityHash);
-      remaining = usage.remaining;
-      resetAt = usage.resetAt;
-      storageMode = usage.storageMode;
-      usageCounted = usage.allowed;
+    const usage = await checkAndIncrementUsage(getIdentitySeed(request));
+    identityHash = usage.identityHash;
+    remaining = usage.remaining;
+    resetAt = usage.resetAt;
+    storageMode = usage.storageMode;
+    usageCounted = usage.allowed;
 
-      if (!usage.allowed) {
-        return NextResponse.json(
-          {
-            error: 'Daily free tier limit reached',
-            message: `You've used all ${FREE_TIER_DAILY_LIMIT} free analyses for today. Add your own API key for unlimited use, or try again tomorrow.`,
-            resetAt,
+    if (!usage.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Daily free tier limit reached',
+          message: `You've used all ${FREE_TIER_DAILY_LIMIT} free analyses for today. Add your own API key for unlimited use, or try again tomorrow.`,
+          resetAt,
+          remaining: 0,
+        },
+        {
+          status: 429,
+          headers: buildFreeTierHeaders({
             remaining: 0,
-          },
-          {
-            status: 429,
-            headers: buildFreeTierHeaders({
-              remaining: 0,
-              resetAt,
-              storageMode,
-            }),
-          }
-        );
-      }
+            resetAt,
+            storageMode,
+          }),
+        }
+      );
     }
 
     const body = await request.json();
@@ -508,7 +549,9 @@ export async function POST(request: NextRequest) {
       result = parseATSAnalysisResponse(response);
     } catch (firstError) {
       // Retry once to smooth over occasional malformed model wrappers.
-      console.error('Primary parse attempt failed, retrying once:', firstError);
+      console.error('Primary analysis parse failed; retrying once', {
+        errorType: errorName(firstError),
+      });
       const retryResponse = await generateATSAnalysis(
         preparedResume.text,
         preparedJobDescription.text,
@@ -517,22 +560,16 @@ export async function POST(request: NextRequest) {
       try {
         result = parseATSAnalysisResponse(retryResponse);
       } catch (retryError) {
-        console.error('Retry parse failed:', retryError);
-        console.error('Retry raw response (first 500 chars):', retryResponse?.slice(0, 500));
+        console.error('Analysis parse retry failed', {
+          errorType: errorName(retryError),
+        });
 
         await safeRefund();
 
-        // Include diagnostic info to help debug
-        const errorMessage = retryError instanceof Error ? retryError.message : 'Unknown parse error';
-        const responsePreview = retryResponse?.slice(0, 200) || 'No response';
-
         return NextResponse.json(
           {
-            error: 'Failed to parse analysis. Please try again.',
-            debug: {
-              parseError: errorMessage,
-              responsePreview: responsePreview,
-            }
+            error: 'Analysis response could not be processed. Please try again.',
+            code: 'ANALYSIS_PARSE_FAILED',
           },
           {
             status: 500,
@@ -543,18 +580,6 @@ export async function POST(request: NextRequest) {
           }
         );
       }
-    }
-
-    if (ownerUnlimited) {
-      return NextResponse.json({
-        ...result,
-        _input: {
-          resumeChars: preparedResume.originalLength,
-          jobDescriptionChars: preparedJobDescription.originalLength,
-          resumeTruncated: preparedResume.truncated,
-          jobDescriptionTruncated: preparedJobDescription.truncated,
-        },
-      });
     }
 
     return NextResponse.json(
@@ -582,11 +607,20 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     await safeRefund();
-    console.error('Free Tier Analysis Error:', error);
+    console.error('Free tier analysis failed', {
+      errorType: errorName(error),
+    });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Analysis failed' },
       {
-        status: 500,
+        error: 'Analysis is temporarily unavailable. Please try again.',
+        code:
+          error instanceof FreeTierQuotaUnavailableError
+            ? 'FREE_TIER_QUOTA_UNAVAILABLE'
+            : 'ANALYSIS_FAILED',
+      },
+      {
+        status:
+          error instanceof FreeTierQuotaUnavailableError ? 503 : 500,
         headers: buildFreeTierHeaders({
           storageMode,
           inputTruncated,

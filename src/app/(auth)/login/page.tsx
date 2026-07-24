@@ -6,11 +6,15 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Sparkles, Mail, Lock, ArrowRight, AlertCircle, ShoppingCart } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { getSafeRedirectPath } from '@/lib/auth/redirects';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || '/account';
+  const redirectTo = getSafeRedirectPath(
+    searchParams.get('redirect'),
+    '/account'
+  );
   const reason = searchParams.get('reason');
 
   const { signIn, signInWithGoogle, isLoading } = useAuth();
@@ -25,25 +29,33 @@ function LoginForm() {
     setError(null);
     setIsSubmitting(true);
 
-    const { error: signInError } = await signIn(email, password);
-
-    if (signInError) {
-      setError(signInError);
+    try {
+      const { error: signInError } = await signIn(email, password);
+      if (signInError) {
+        setError(signInError);
+        return;
+      }
+      router.replace(redirectTo);
+    } catch {
+      setError('Unable to sign in. Check your connection and try again.');
+    } finally {
       setIsSubmitting(false);
-    } else {
-      router.push(redirectTo);
     }
   };
 
   const handleGoogleSignIn = async () => {
     setError(null);
     setIsGoogleLoading(true);
-    const { error: googleError } = await signInWithGoogle(redirectTo);
-    if (googleError) {
-      setError(googleError);
+    try {
+      const { error: googleError } = await signInWithGoogle(redirectTo);
+      if (googleError) {
+        setError(googleError);
+      }
+    } catch {
+      setError('Unable to connect to Google. Check your connection and try again.');
+    } finally {
       setIsGoogleLoading(false);
     }
-    // If no error, the page will redirect to Google OAuth
   };
 
   return (
@@ -152,6 +164,7 @@ function LoginForm() {
                   <input
                     id="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -170,6 +183,7 @@ function LoginForm() {
                   <input
                     id="password"
                     type="password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -177,6 +191,15 @@ function LoginForm() {
                     placeholder="Enter your password"
                   />
                 </div>
+              </div>
+
+              <div className="text-right">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm font-medium text-indigo-300 hover:text-white"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
               <button

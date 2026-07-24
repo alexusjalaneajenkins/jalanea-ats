@@ -9,7 +9,13 @@
  * - OpenAI text-embedding-3-small
  */
 
-import { LlmConfig, SupportedProvider, fetchWithRetry } from './types';
+import {
+  LlmConfig,
+  SupportedProvider,
+  fetchWithRetry,
+  isAbortError,
+  throwIfAborted,
+} from './types';
 
 // ============================================================================
 // Types
@@ -67,8 +73,11 @@ const EMBEDDING_CONFIG: Record<SupportedProvider, {
  */
 export async function generateEmbedding(
   text: string,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<EmbeddingResult> {
+  throwIfAborted(signal);
+
   if (!config.apiKey) {
     return { success: false, error: 'API key not configured' };
   }
@@ -80,9 +89,9 @@ export async function generateEmbedding(
   try {
     switch (config.provider) {
       case 'gemini':
-        return await generateGeminiEmbedding(truncatedText, config.apiKey);
+        return await generateGeminiEmbedding(truncatedText, config.apiKey, signal);
       case 'openai':
-        return await generateOpenAIEmbedding(truncatedText, config.apiKey);
+        return await generateOpenAIEmbedding(truncatedText, config.apiKey, signal);
       case 'anthropic':
         // Anthropic doesn't have embeddings, fall back to Gemini if key works
         return { success: false, error: 'Anthropic does not support embeddings. Please use Gemini or OpenAI.' };
@@ -90,6 +99,7 @@ export async function generateEmbedding(
         return { success: false, error: `Unsupported provider: ${config.provider}` };
     }
   } catch (error) {
+    if (isAbortError(error, signal)) throw error;
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error generating embedding',
@@ -102,7 +112,8 @@ export async function generateEmbedding(
  */
 async function generateGeminiEmbedding(
   text: string,
-  apiKey: string
+  apiKey: string,
+  signal?: AbortSignal
 ): Promise<EmbeddingResult> {
   const response = await fetchWithRetry(
     `${EMBEDDING_CONFIG.gemini.url}?key=${apiKey}`,
@@ -117,8 +128,10 @@ async function generateGeminiEmbedding(
           parts: [{ text }],
         },
       }),
+      signal,
     }
   );
+  throwIfAborted(signal);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -169,7 +182,8 @@ async function generateGeminiEmbedding(
  */
 async function generateOpenAIEmbedding(
   text: string,
-  apiKey: string
+  apiKey: string,
+  signal?: AbortSignal
 ): Promise<EmbeddingResult> {
   const response = await fetch(EMBEDDING_CONFIG.openai.url, {
     method: 'POST',
@@ -181,7 +195,9 @@ async function generateOpenAIEmbedding(
       model: EMBEDDING_CONFIG.openai.model,
       input: text,
     }),
+    signal,
   });
+  throwIfAborted(signal);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -240,13 +256,16 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 export async function calculateSemanticSimilarity(
   text1: string,
   text2: string,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SimilarityResult> {
+  throwIfAborted(signal);
   // Generate embeddings in parallel
   const [embedding1, embedding2] = await Promise.all([
-    generateEmbedding(text1, config),
-    generateEmbedding(text2, config),
+    generateEmbedding(text1, config, signal),
+    generateEmbedding(text2, config, signal),
   ]);
+  throwIfAborted(signal);
 
   if (!embedding1.success || !embedding1.embedding) {
     return { success: false, error: embedding1.error || 'Failed to generate first embedding' };
@@ -262,6 +281,7 @@ export async function calculateSemanticSimilarity(
     const normalizedSimilarity = (similarity + 1) / 2;
     return { success: true, similarity: normalizedSimilarity };
   } catch (error) {
+    if (isAbortError(error, signal)) throw error;
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error calculating similarity',
@@ -279,10 +299,12 @@ export async function calculateSemanticSimilarity(
 export async function calculateSectionSimilarities(
   resumeText: string,
   sections: Record<string, string>,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<Record<string, SimilarityResult>> {
+  throwIfAborted(signal);
   // Generate resume embedding once
-  const resumeEmbedding = await generateEmbedding(resumeText, config);
+  const resumeEmbedding = await generateEmbedding(resumeText, config, signal);
   if (!resumeEmbedding.success || !resumeEmbedding.embedding) {
     const errorResult = { success: false, error: resumeEmbedding.error || 'Failed to generate resume embedding' };
     return Object.keys(sections).reduce((acc, key) => {
@@ -294,8 +316,9 @@ export async function calculateSectionSimilarities(
   // Generate section embeddings in parallel
   const sectionKeys = Object.keys(sections);
   const sectionEmbeddings = await Promise.all(
-    sectionKeys.map(key => generateEmbedding(sections[key], config))
+    sectionKeys.map(key => generateEmbedding(sections[key], config, signal))
   );
+  throwIfAborted(signal);
 
   // Calculate similarities
   const results: Record<string, SimilarityResult> = {};
@@ -313,6 +336,7 @@ export async function calculateSectionSimilarities(
       const normalizedSimilarity = (similarity + 1) / 2;
       results[key] = { success: true, similarity: normalizedSimilarity };
     } catch (error) {
+      if (isAbortError(error, signal)) throw error;
       results[key] = {
         success: false,
         error: error instanceof Error ? error.message : 'Error calculating similarity',

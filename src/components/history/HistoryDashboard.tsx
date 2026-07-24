@@ -13,7 +13,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { historyStore } from '@/lib/storage/historyStore';
+import { eraseLocalAtsData } from '@/lib/storage/localDataErasure';
 import { HistoryEntry, ResumeGroup, HistoryStats } from '@/lib/types/history';
+import { Dialog } from '@/components/ui/Dialog';
 import { ResumeGroupCard, HistoryEntryCard } from './HistoryEntryCard';
 
 type ViewMode = 'grouped' | 'chronological';
@@ -30,13 +32,15 @@ interface HistoryDashboardProps {
  *
  * Shows analysis history with grouping by resume and improvement tracking.
  */
-export function HistoryDashboard({ onClose, compact = false }: HistoryDashboardProps) {
+export function HistoryDashboard({ onClose }: HistoryDashboardProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [groups, setGroups] = useState<ResumeGroup[]>([]);
   const [stats, setStats] = useState<HistoryStats | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grouped');
   const [isLoading, setIsLoading] = useState(true);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   // Load history on mount
   const loadHistory = useCallback(async () => {
@@ -67,12 +71,28 @@ export function HistoryDashboard({ onClose, compact = false }: HistoryDashboardP
     loadHistory();
   }, [loadHistory]);
 
-  // Clear all history
+  // Clear all browser-local ATS data
   const handleClearAll = useCallback(async () => {
-    await historyStore.deleteAll();
-    setShowConfirmClear(false);
-    loadHistory();
-  }, [loadHistory]);
+    setIsClearing(true);
+    setClearError(null);
+
+    try {
+      await eraseLocalAtsData();
+      setEntries([]);
+      setGroups([]);
+      setStats(null);
+      setShowConfirmClear(false);
+      onClose?.();
+      window.location.assign('/');
+    } catch (error) {
+      console.error('Failed to clear local ATS data:', error);
+      setClearError(
+        'Some local ATS data could not be cleared. Please try again or clear this site’s data in your browser settings.'
+      );
+    } finally {
+      setIsClearing(false);
+    }
+  }, [onClose]);
 
   // Export history
   const handleExport = useCallback(async () => {
@@ -160,15 +180,16 @@ export function HistoryDashboard({ onClose, compact = false }: HistoryDashboardP
             />
           </label>
 
-          {entries.length > 0 && (
-            <button
-              onClick={() => setShowConfirmClear(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Clear</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setClearError(null);
+              setShowConfirmClear(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Clear Local Data</span>
+          </button>
         </div>
       </div>
 
@@ -285,38 +306,65 @@ export function HistoryDashboard({ onClose, compact = false }: HistoryDashboardP
       )}
 
       {/* Confirm Clear Dialog */}
-      {showConfirmClear && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-indigo-900 rounded-2xl border border-indigo-500/30 p-6 max-w-md mx-4 shadow-2xl">
+      <Dialog
+        isOpen={showConfirmClear}
+        onClose={() => {
+          if (!isClearing) setShowConfirmClear(false);
+        }}
+        labelledBy="clear-history-dialog-title"
+        describedBy="clear-history-dialog-description"
+        role="alertdialog"
+        closeOnBackdrop={!isClearing}
+      >
+        <div className="flex min-h-[100dvh] items-center justify-center p-4">
+          <div className="bg-indigo-900 rounded-2xl border border-indigo-500/30 p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
-              <h3 className="text-lg font-bold text-white">Clear All History?</h3>
+              <h3
+                id="clear-history-dialog-title"
+                className="text-lg font-bold text-white"
+              >
+                Clear All Local ATS Data?
+              </h3>
             </div>
 
-            <p className="text-indigo-300 text-sm mb-6">
-              This will permanently delete all {entries.length} analysis entries.
-              This action cannot be undone.
+            <p
+              id="clear-history-dialog-description"
+              className="text-indigo-300 text-sm mb-6"
+            >
+              This permanently deletes resume sessions, all {entries.length} analysis
+              {entries.length === 1 ? ' entry' : ' entries'}, targeting drafts, saved AI
+              configuration, and ATS preferences from this browser. It does not delete
+              your online account or unrelated browser data. This action cannot be undone.
             </p>
+
+            {clearError && (
+              <p role="alert" className="mb-4 text-sm text-red-300">
+                {clearError}
+              </p>
+            )}
 
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowConfirmClear(false)}
-                className="px-4 py-2 text-sm font-medium text-indigo-300 hover:text-indigo-200 transition-colors"
+                disabled={isClearing}
+                className="px-4 py-2 text-sm font-medium text-indigo-300 hover:text-indigo-200 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleClearAll}
-                className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                disabled={isClearing}
+                className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Clear All History
+                {isClearing ? 'Clearing…' : 'Clear Local Data'}
               </button>
             </div>
           </div>
         </div>
-      )}
+      </Dialog>
     </div>
   );
 }

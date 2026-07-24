@@ -33,7 +33,6 @@ export function MobileActionButton({
   useEffect(() => {
     // Don't show if complete
     if (isComplete) {
-      setIsVisible(false);
       return;
     }
 

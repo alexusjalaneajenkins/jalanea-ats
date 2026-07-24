@@ -77,7 +77,7 @@ export function RecruiterBehavior() {
       <div className="p-4 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-xl border border-blue-500/20">
         <p className="text-sm text-indigo-200">
           <span className="font-bold text-blue-400">Reality check: </span>
-          Recruiters don't read every resume. They search, filter, and skim.
+          Recruiters don&apos;t read every resume. They search, filter, and skim.
           Understanding their workflow helps you appear in searches and pass the 6-second scan.
         </p>
       </div>
@@ -86,7 +86,7 @@ export function RecruiterBehavior() {
       <div>
         <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
           <Clock className="w-4 h-4 text-indigo-400" />
-          The Numbers You're Up Against
+          The Numbers You&apos;re Up Against
         </h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {timeStats.map((item, idx) => (

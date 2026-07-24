@@ -26,6 +26,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { BulletSuggestionPopover, BulletVariation } from './BulletSuggestionPopover';
+import { buildAiJsonHeaders } from '@/lib/llm/consentHeaders';
 import type { GeminiModel } from '@/lib/llm/types';
 
 interface ResumeImproverProps {
@@ -41,6 +42,8 @@ interface ResumeImproverProps {
   analysisRecommendations?: string[];
   /** Whether free tier or BYOK is available */
   isAiAvailable: boolean;
+  /** Persisted user acknowledgment for sending text to AI */
+  hasAiConsent: boolean;
   /** Selected Gemini model (optional) */
   geminiModel?: GeminiModel;
   /** Callback when user wants to configure API */
@@ -64,6 +67,7 @@ export function ResumeImprover({
   analysisGaps = [],
   analysisRecommendations = [],
   isAiAvailable,
+  hasAiConsent,
   geminiModel,
   onConfigureClick,
   onDraftChange,
@@ -128,6 +132,11 @@ export function ResumeImprover({
   // Fetch AI suggestions for a bullet
   const fetchSuggestions = useCallback(
     async (bullet: string) => {
+      if (!hasAiConsent) {
+        setError('AI data-sharing consent is required.');
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       setVariations([]);
@@ -135,7 +144,7 @@ export function ResumeImprover({
       try {
         const response = await fetch('/api/improve-bullet', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAiJsonHeaders(hasAiConsent),
           body: JSON.stringify({
             bullet,
             jobDescription,
@@ -159,7 +168,14 @@ export function ResumeImprover({
         setIsLoading(false);
       }
     },
-    [jobDescription, missingKeywords, analysisGaps, analysisRecommendations, geminiModel]
+    [
+      hasAiConsent,
+      jobDescription,
+      missingKeywords,
+      analysisGaps,
+      analysisRecommendations,
+      geminiModel,
+    ]
   );
 
   // Handle bullet click
@@ -248,7 +264,10 @@ export function ResumeImprover({
   }, [selectedBullet, fetchSuggestions]);
 
   const handleAutoImprove = useCallback(async () => {
-    if (!isAiAvailable) return;
+    if (!isAiAvailable || !hasAiConsent) {
+      setAutoImproveError('AI data-sharing consent is required.');
+      return;
+    }
 
     setAutoImproveError(null);
     setAutoImproveSummary(null);
@@ -269,7 +288,7 @@ export function ResumeImprover({
       for (const line of candidateLines) {
         const response = await fetch('/api/improve-bullet', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAiJsonHeaders(hasAiConsent),
           body: JSON.stringify({
             bullet: line.current.trim(),
             jobDescription,
@@ -330,6 +349,7 @@ export function ResumeImprover({
     }
   }, [
     isAiAvailable,
+    hasAiConsent,
     lines,
     jobDescription,
     missingKeywords,

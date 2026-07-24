@@ -32,9 +32,14 @@ export function PWAInstall() {
     }
 
     // Check if already dismissed
-    const wasDismissed = localStorage.getItem('pwa-install-dismissed');
+    let wasDismissed: string | null = null;
+    try {
+      wasDismissed = localStorage.getItem('pwa-install-dismissed');
+    } catch {
+      // The install prompt can still work when browser storage is denied.
+    }
     if (wasDismissed) {
-      setDismissed(true);
+      queueMicrotask(() => setDismissed(true));
     }
 
     // Listen for install prompt
@@ -69,7 +74,11 @@ export function PWAInstall() {
   const handleDismiss = () => {
     setShowBanner(false);
     setDismissed(true);
-    localStorage.setItem('pwa-install-dismissed', 'true');
+    try {
+      localStorage.setItem('pwa-install-dismissed', 'true');
+    } catch {
+      // Dismiss for this render even when browser storage is unavailable.
+    }
   };
 
   return (
@@ -91,7 +100,7 @@ export function PWAInstall() {
                 Install Jalanea ATS
               </h3>
               <p className="text-xs text-indigo-300 mb-3">
-                Add to your home screen for quick access, even offline.
+                Add to your home screen for quick access.
               </p>
               <div className="flex gap-2">
                 <button

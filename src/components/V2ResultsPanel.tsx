@@ -9,10 +9,18 @@
 
 import { useState } from 'react';
 import type { V2AnalysisResult } from '@/lib/v2';
-import { Shield, Search, Brain, Target, AlertTriangle, CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, Search, Brain, Target, CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface V2ResultsPanelProps {
   result: V2AnalysisResult;
+}
+
+function ChevronIndicator({ expanded }: { expanded: boolean }) {
+  return expanded ? (
+    <ChevronUp className="w-4 h-4" />
+  ) : (
+    <ChevronDown className="w-4 h-4" />
+  );
 }
 
 export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
@@ -24,13 +32,16 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
   const toggle = (section: string) => {
     setExpandedSections(prev => {
       const next = new Set(prev);
-      next.has(section) ? next.delete(section) : next.add(section);
+      if (next.has(section)) {
+        next.delete(section);
+      } else {
+        next.add(section);
+      }
       return next;
     });
   };
 
   const isOpen = (s: string) => expandedSections.has(s);
-  const Chevron = ({ section }: { section: string }) => isOpen(section) ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
 
   const scoreColor = (score: number) => {
     if (score >= 85) return 'text-emerald-400';
@@ -67,23 +78,52 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
           </div>
           <span className={`text-4xl font-black ${scoreColor(composite.score)}`}>{composite.score}%</span>
         </div>
-        {!composite.knockoutGatePassed && (
+        {composite.knockoutGateStatus === 'fail' && (
           <div className="rounded-lg bg-red-900/40 border border-red-500/30 px-3 py-2 mb-3">
             <p className="text-sm text-red-300 font-semibold">⚠ Knockout gate failed — score capped at 30%. Fix hard requirements first.</p>
           </div>
         )}
+        {composite.knockoutGateStatus === 'needs-confirmation' && (
+          <div className="rounded-lg bg-amber-900/40 border border-amber-500/30 px-3 py-2 mb-3">
+            <p className="text-sm text-amber-200 font-semibold">
+              Some hard requirements need confirmation — this is not a pass, and the score is capped until verified.
+            </p>
+          </div>
+        )}
+        {composite.confidence === 'limited' && (
+          <p className="text-xs text-amber-200 mb-3">
+            Limited-confidence score: one or more deterministic layers did not have enough evidence to evaluate.
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-3 text-center text-sm">
           <div className="rounded-lg bg-indigo-900/40 p-2">
             <p className="text-indigo-400 text-xs">Section Match</p>
-            <p className="text-white font-bold">{sectionMatch.score}% <span className="text-indigo-400 text-xs">× {composite.weights.sectionMatch * 100}%</span></p>
+            <p className="text-white font-bold">
+              {sectionMatch.score === null ? 'N/A' : `${sectionMatch.score}%`}{' '}
+              <span className="text-indigo-400 text-xs">
+                × {Math.round(composite.weights.sectionMatch * 100)}%
+              </span>
+            </p>
           </div>
           <div className="rounded-lg bg-indigo-900/40 p-2">
             <p className="text-indigo-400 text-xs">Boolean Search</p>
-            <p className="text-white font-bold">{booleanSearch.score}% <span className="text-indigo-400 text-xs">× {composite.weights.booleanSearch * 100}%</span></p>
+            <p className="text-white font-bold">
+              {booleanSearch.evidenceStatus === 'not-evaluated'
+                ? 'N/A'
+                : `${booleanSearch.score}%`}{' '}
+              <span className="text-indigo-400 text-xs">
+                × {Math.round(composite.weights.booleanSearch * 100)}%
+              </span>
+            </p>
           </div>
           <div className="rounded-lg bg-indigo-900/40 p-2">
             <p className="text-indigo-400 text-xs">AI Fit</p>
-            <p className="text-white font-bold">{aiRanking.fitScore}% <span className="text-indigo-400 text-xs">× {composite.weights.aiFit * 100}%</span></p>
+            <p className="text-white font-bold">
+              {aiRanking.fitScore}%{' '}
+              <span className="text-indigo-400 text-xs">
+                × {Math.round(composite.weights.aiFit * 100)}%
+              </span>
+            </p>
           </div>
         </div>
       </div>
@@ -92,13 +132,29 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
       <div className="rounded-xl border border-indigo-500/30 bg-indigo-900/20 overflow-hidden">
         <button onClick={() => toggle('knockout')} className="w-full flex items-center justify-between p-4 hover:bg-indigo-900/30 transition-colors">
           <div className="flex items-center gap-2">
-            <Shield className={`w-5 h-5 ${knockout.passed ? 'text-emerald-400' : 'text-red-400'}`} />
+            <Shield className={`w-5 h-5 ${
+              knockout.overallStatus === 'pass'
+                ? 'text-emerald-400'
+                : knockout.overallStatus === 'fail'
+                  ? 'text-red-400'
+                  : 'text-amber-400'
+            }`} />
             <h3 className="font-bold text-white">Knockout Screening</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${knockout.passed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
-              {knockout.passed ? 'PASSED' : `${knockout.hardFailCount} FAILED`}
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+              knockout.overallStatus === 'pass'
+                ? 'bg-emerald-500/20 text-emerald-300'
+                : knockout.overallStatus === 'fail'
+                  ? 'bg-red-500/20 text-red-300'
+                  : 'bg-amber-500/20 text-amber-200'
+            }`}>
+              {knockout.overallStatus === 'pass'
+                ? 'PASSED'
+                : knockout.overallStatus === 'fail'
+                  ? `${knockout.hardFailCount} FAILED`
+                  : `${knockout.needsConfirmationCount} NEED CONFIRMATION`}
             </span>
           </div>
-          <Chevron section="knockout" />
+          <ChevronIndicator expanded={isOpen('knockout')} />
         </button>
         {isOpen('knockout') && (
           <div className="px-4 pb-4 space-y-2">
@@ -138,7 +194,7 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
               {sectionMatch.foundCount}/{sectionMatch.totalRequired} found
             </span>
           </div>
-          <Chevron section="section" />
+          <ChevronIndicator expanded={isOpen('section')} />
         </button>
         {isOpen('section') && (
           <div className="px-4 pb-4">
@@ -194,11 +250,21 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
           <div className="flex items-center gap-2">
             <Search className="w-5 h-5 text-indigo-300" />
             <h3 className="font-bold text-white">Boolean Search Simulation</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${booleanSearch.wouldSurface ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
-              {booleanSearch.wouldSurface ? 'WOULD SURFACE' : 'WOULD NOT SURFACE'}
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+              booleanSearch.wouldSurface === null
+                ? 'bg-amber-500/20 text-amber-200'
+                : booleanSearch.wouldSurface
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-red-500/20 text-red-300'
+            }`}>
+              {booleanSearch.wouldSurface === null
+                ? 'NOT EVALUATED'
+                : booleanSearch.wouldSurface
+                  ? 'WOULD SURFACE'
+                  : 'WOULD NOT SURFACE'}
             </span>
           </div>
-          <Chevron section="boolean" />
+          <ChevronIndicator expanded={isOpen('boolean')} />
         </button>
         {isOpen('boolean') && (
           <div className="px-4 pb-4 space-y-3">
@@ -227,7 +293,7 @@ export function V2ResultsPanel({ result }: V2ResultsPanelProps) {
               {aiRanking.fitLabel}
             </span>
           </div>
-          <Chevron section="ai" />
+          <ChevronIndicator expanded={isOpen('ai')} />
         </button>
         {isOpen('ai') && (
           <div className="px-4 pb-4 space-y-3">

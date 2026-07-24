@@ -73,7 +73,7 @@ export function ContinuePrompt({
                 </div>
                 {!hadJobDescription && (
                   <p className="mt-1 text-xs text-amber-400">
-                    You haven't added a job description yet
+                    You haven&apos;t added a job description yet
                   </p>
                 )}
               </div>

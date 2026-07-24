@@ -5,7 +5,14 @@
  * Simulates ATS auto-reject / disqualification filters.
  */
 
-import type { ParsedResume, ParsedJobDescription, KnockoutResult, KnockoutLayerResult } from './types';
+import type {
+  ParsedResume,
+  ParsedJobDescription,
+  KnockoutCriterion,
+  KnockoutResult,
+  KnockoutLayerResult,
+  KnockoutStatus,
+} from './types';
 
 /** Degree hierarchy for comparison */
 const DEGREE_LEVELS: Record<string, number> = {
@@ -16,71 +23,112 @@ const DEGREE_LEVELS: Record<string, number> = {
   'phd': 5, 'doctorate': 5, 'doctoral': 5, 'md': 5, 'jd': 5,
 };
 
-function getDegreeLevel(degreeStr: string): number {
-  const lower = degreeStr.toLowerCase().trim();
-  for (const [key, level] of Object.entries(DEGREE_LEVELS)) {
-    if (lower.includes(key)) return level;
+const DOTTED_DEGREE_NOTATION: Array<[RegExp, string]> = [
+  [/\bph\s*\.?\s*d\b\.?/gi, ' phd '],
+  [/\bm\s*\.?\s*b\s*\.?\s*a\b\.?/gi, ' mba '],
+  [/\bm\s*\.?\s*s\b\.?/gi, ' ms '],
+  [/\bm\s*\.?\s*a\b\.?/gi, ' ma '],
+  [/\bb\s*\.?\s*b\s*\.?\s*a\b\.?/gi, ' bba '],
+  [/\bb\s*\.?\s*s\b\.?/gi, ' bs '],
+  [/\bb\s*\.?\s*a\b\.?/gi, ' ba '],
+];
+
+export interface DegreeClassification {
+  level: number;
+  recognized: boolean;
+}
+
+export function classifyDegreeLevel(degreeStr: string): DegreeClassification {
+  const canonicalDegree = DOTTED_DEGREE_NOTATION.reduce(
+    (value, [pattern, replacement]) => value.replace(pattern, replacement),
+    degreeStr
+  );
+  const normalizedDegree = normalizeText(canonicalDegree);
+  const paddedDegree = ` ${normalizedDegree} `;
+  const degreeEntries = Object.entries(DEGREE_LEVELS).sort(
+    ([left], [right]) => right.length - left.length
+  );
+  for (const [key, level] of degreeEntries) {
+    const normalizedKey = normalizeText(key);
+    if (paddedDegree.includes(` ${normalizedKey} `)) {
+      return { level, recognized: true };
+    }
   }
-  return 0;
+  return { level: 0, recognized: false };
 }
 
 function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** Strip qualifiers that JDs add but resumes rarely include */
-const QUALIFIER_WORDS = new Set([
-  'active', 'current', 'valid', 'required', 'must', 'have', 'possess',
-  'maintain', 'hold', 'preferred', 'ability', 'able', 'to',
-]);
-
-/** Common suffixes to stem for fuzzy matching */
-function stem(word: string): string {
-  return word
-    .replace(/(ation|tion|sion|ment|ness|ence|ance|ity|ing|ied|ies|ous|ive|ful|able|ible|ist|ism|ly|ed|er|al|ar|or|s)$/, '')
-    .replace(/(certif|licens|register).*/, '$1'); // certif* matches certified/certification/certificate
-}
-
-/** Extract acronyms from parentheses: "Applied Behavior Analysis (ABA)" → ["ABA"] */
-function extractAcronyms(text: string): string[] {
-  const matches = text.match(/\(([A-Z]{2,})\)/g) || [];
-  return matches.map(m => m.replace(/[()]/g, '').toLowerCase());
-}
-
 function searchInArray(items: string[], searchTerm: string): string | undefined {
   const normalized = normalizeText(searchTerm);
-  
-  // Remove qualifier words to get core terms
-  const coreTerms = normalized.split(' ')
-    .filter(t => t.length > 1 && !QUALIFIER_WORDS.has(t));
-  
-  // Also extract acronyms from the search term itself
-  const searchAcronyms = extractAcronyms(searchTerm);
-  
-  // Stem the core terms for fuzzy matching
-  const stemmedTerms = coreTerms.map(stem).filter(t => t.length > 2);
-  
+  if (!normalized) return undefined;
+  const paddedNeedle = ` ${normalized} `;
   return items.find(item => {
     const normItem = normalizeText(item);
-    const itemAcronyms = extractAcronyms(item);
-    const itemWords = normItem.split(' ');
-    const stemmedItem = itemWords.map(stem);
-    
-    // Direct substring match
-    if (normItem.includes(normalized)) return true;
-    
-    // All core terms present (exact)
-    if (coreTerms.length > 0 && coreTerms.every(t => normItem.includes(t))) return true;
-    
-    // Stemmed match: all stemmed core terms found in stemmed item
-    if (stemmedTerms.length > 0 && stemmedTerms.every(st => stemmedItem.some(si => si.includes(st) || st.includes(si)))) return true;
-    
-    // Acronym cross-match: search acronym found in item, or item acronym found in search
-    if (searchAcronyms.some(a => normItem.includes(a))) return true;
-    if (itemAcronyms.some(a => normalized.includes(a) || coreTerms.includes(a))) return true;
-    
-    return false;
+    return (
+      normItem === normalized ||
+      ` ${normItem} `.includes(paddedNeedle)
+    );
   });
+}
+
+function hasEquivalentCriterion(
+  criteria: KnockoutCriterion[],
+  category: KnockoutCriterion['category'],
+  requirement: string
+): boolean {
+  const normalizedRequirement = normalizeText(requirement);
+  return criteria.some((criterion) => {
+    if (criterion.category !== category) return false;
+    const normalizedCriterion = normalizeText(criterion.requirement);
+    return (
+      normalizedCriterion === normalizedRequirement ||
+      normalizedCriterion.includes(normalizedRequirement) ||
+      normalizedRequirement.includes(normalizedCriterion)
+    );
+  });
+}
+
+function getEffectiveCriteria(jd: ParsedJobDescription): KnockoutCriterion[] {
+  const criteria = [...jd.knockoutCriteria];
+
+  if (jd.requiredEducation) {
+    const educationRequirement = [
+      jd.requiredEducation.minimumDegree,
+      jd.requiredEducation.field
+        ? `in ${jd.requiredEducation.field}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    if (
+      !hasEquivalentCriterion(
+        criteria,
+        'education',
+        educationRequirement
+      )
+    ) {
+      criteria.push({
+        requirement: educationRequirement,
+        category: 'education',
+        isHardRequirement: true,
+      });
+    }
+  }
+
+  for (const certification of jd.requiredCertifications) {
+    if (!hasEquivalentCriterion(criteria, 'certification', certification)) {
+      criteria.push({
+        requirement: certification,
+        category: 'certification',
+        isHardRequirement: true,
+      });
+    }
+  }
+
+  return criteria;
 }
 
 export function runKnockoutScreening(
@@ -89,7 +137,7 @@ export function runKnockoutScreening(
 ): KnockoutLayerResult {
   const results: KnockoutResult[] = [];
 
-  for (const criterion of jd.knockoutCriteria) {
+  for (const criterion of getEffectiveCriteria(jd)) {
     const result = checkSingleKnockout(resume, criterion, jd);
     results.push(result);
   }
@@ -97,11 +145,22 @@ export function runKnockoutScreening(
   const hardFailCount = results.filter(
     r => r.isHardRequirement && r.status === 'fail'
   ).length;
+  const needsConfirmationCount = results.filter(
+    r => r.isHardRequirement && r.status === 'needs-confirmation'
+  ).length;
+  const overallStatus: KnockoutStatus =
+    hardFailCount > 0
+      ? 'fail'
+      : needsConfirmationCount > 0
+        ? 'needs-confirmation'
+        : 'pass';
 
   return {
     results,
     hardFailCount,
-    passed: hardFailCount === 0,
+    needsConfirmationCount,
+    overallStatus,
+    passed: overallStatus === 'pass',
   };
 }
 
@@ -118,20 +177,69 @@ function checkSingleKnockout(
 
   switch (criterion.category) {
     case 'education': {
-      const reqLevel = getDegreeLevel(criterion.requirement);
-      if (reqLevel === 0) {
+      const requiredDegree = classifyDegreeLevel(criterion.requirement);
+      if (!requiredDegree.recognized) {
         // Can't determine required level, flag for confirmation
         return { ...base, status: 'needs-confirmation', checkedSection: 'education', evidence: 'Could not determine required degree level' };
       }
-      const maxResumeLevel = Math.max(0, ...resume.education.map(e => getDegreeLevel(e.degree)));
+      const classifiedEducation = resume.education.map((entry) => ({
+        entry,
+        classification: classifyDegreeLevel(entry.degree),
+      }));
+      const recognizedEducation = classifiedEducation.filter(
+        ({ classification }) => classification.recognized
+      );
+      const maxResumeLevel = Math.max(
+        0,
+        ...recognizedEducation.map(
+          ({ classification }) => classification.level
+        )
+      );
+      const reqLevel = requiredDegree.level;
       if (maxResumeLevel >= reqLevel) {
-        const match = resume.education.find(e => getDegreeLevel(e.degree) >= reqLevel);
+        const requiredField =
+          jd.requiredEducation &&
+          normalizeText(criterion.requirement).includes(
+            normalizeText(jd.requiredEducation.minimumDegree)
+          )
+            ? jd.requiredEducation.field
+            : undefined;
+        const matchingDegreeEntries = recognizedEducation
+          .filter(
+            ({ classification }) => classification.level >= reqLevel
+          )
+          .map(({ entry }) => entry);
+        if (requiredField) {
+          const fieldMatch = searchInArray(
+            matchingDegreeEntries.map(
+              (entry) => `${entry.degree} ${entry.field || ''}`
+            ),
+            requiredField
+          );
+          if (!fieldMatch) {
+            return {
+              ...base,
+              status: 'needs-confirmation',
+              checkedSection: 'education',
+              evidence: `Degree level found; field "${requiredField}" was not clearly identified`,
+            };
+          }
+        }
+        const match = matchingDegreeEntries[0];
         return { ...base, status: 'pass', checkedSection: 'education', evidence: match ? `${match.degree} — ${match.school}` : undefined };
       }
       if (maxResumeLevel > 0) {
         return { ...base, status: 'fail', checkedSection: 'education', evidence: `Highest found: level ${maxResumeLevel}, required: level ${reqLevel}` };
       }
-      return { ...base, status: 'fail', checkedSection: 'education', evidence: 'No education entries found in resume' };
+      if (resume.education.length === 0) {
+        return { ...base, status: 'fail', checkedSection: 'education', evidence: 'No education entries found in resume' };
+      }
+      return {
+        ...base,
+        status: 'needs-confirmation',
+        checkedSection: 'education',
+        evidence: 'Education was found, but the degree notation could not be classified',
+      };
     }
 
     case 'certification': {
@@ -173,7 +281,7 @@ function checkSingleKnockout(
         ...resume.workHistory.flatMap(w => w.bullets),
       ].join(' ');
       const normReq = normalizeText(criterion.requirement);
-      if (normalizeText(allText).includes(normReq)) {
+      if (normReq && normalizeText(allText).includes(normReq)) {
         return { ...base, status: 'pass', checkedSection: 'general', evidence: `Found mention in resume` };
       }
       // Most screening items need user confirmation

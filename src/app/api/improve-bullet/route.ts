@@ -1,221 +1,254 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 
-/**
- * Bullet Improvement API
- *
- * Generates 3 variations of a resume bullet point:
- * - High Impact (metrics/numbers focus)
- * - Leadership (action verbs focus)
- * - Concise (shorter, punchier)
- *
- * Rate limited: 3/day for unauthenticated users, unlimited for paid subscribers.
- */
+import {
+  handleImproveBulletRequest,
+  type BulletVariation,
+  type ImproveBulletInput,
+  type ImproveBulletQuotaDecision,
+  type ImproveBulletResponse,
+} from '@/lib/ai/improveBulletRequest';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
-const DAILY_LIMIT = 3;
+export const maxDuration = 60;
 
-// In-memory fallback for rate limiting (used if Supabase unavailable)
-const rateLimitMap = new Map<string, { date: string; count: number }>();
+const FREE_DAILY_LIMIT = 3;
+const PAID_PER_MINUTE_LIMIT = 30;
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const IDENTITY_VERSION = 'v1';
+
+function getProviderKey(): string | null {
+  return process.env.GEMINI_API_KEY
+    || process.env.DEMO_GEMINI_API_KEY
+    || null;
+}
 
 function getClientIP(request: NextRequest): string {
   const forwardedFor = request.headers.get('x-forwarded-for');
-  return forwardedFor ? forwardedFor.split(',')[0].trim() : 'unknown';
+  if (forwardedFor) return forwardedFor.split(',')[0].trim();
+  return request.headers.get('x-real-ip')?.trim() || 'unknown';
 }
 
-function getTodayUTC(): string {
-  return new Date().toISOString().split('T')[0];
+function getAnonymousIdentitySeed(request: NextRequest): string {
+  return [
+    IDENTITY_VERSION,
+    getClientIP(request),
+    request.headers.get('user-agent') || 'unknown',
+    request.headers.get('accept-language') || 'unknown',
+    request.headers.get('sec-ch-ua') || 'unknown',
+    request.headers.get('sec-ch-ua-platform') || 'unknown',
+  ].join('|');
 }
 
-/** Hash IP so we don't store raw IPs */
-async function hashIP(ip: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(ip + '_jalanea_bullet_salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+async function hashQuotaIdentity(identity: string): Promise<string> {
+  const secret = process.env.AI_RATE_LIMIT_IDENTITY_SALT
+    || process.env.FREE_TIER_IDENTITY_SALT
+    || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!secret) {
+    throw new Error('AI quota identity hashing is unavailable');
+  }
+
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${identity}|${secret}`)
+  );
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-/** Check if user has active subscription (server-side) */
-async function checkPaidAccess(): Promise<boolean> {
-  try {
-    const cookieStore = await cookies();
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function createRequestSupabaseClient(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) return null;
 
-    if (!supabaseUrl || !supabaseAnonKey) return false;
-
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {
-          // Read-only in API routes
-        },
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    });
+      setAll() {
+        // This route only reads the authenticated session.
+      },
+    },
+  });
+}
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
+async function resolvePaidIdentity(
+  request: NextRequest
+): Promise<string | null> {
+  const requestSupabase = createRequestSupabaseClient(request);
+  if (!requestSupabase) return null;
 
-    // Check for active subscription
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .in('status', ['active', 'trialing'])
-      .limit(1)
-      .single();
+  const {
+    data: { user },
+  } = await requestSupabase.auth.getUser();
 
-    return !!subscription;
-  } catch {
-    return false;
+  if (!user) return null;
+
+  const adminSupabase = createServiceRoleClient();
+  const { data: hasAccess, error } = await adminSupabase.rpc(
+    'has_active_access',
+    {
+      check_user_id: user.id,
+    }
+  );
+
+  if (error) {
+    throw new Error('Subscription lookup failed');
   }
+
+  return hasAccess === true ? user.id : null;
 }
 
-/** Check and increment rate limit for IP */
-async function checkRateLimit(ip: string): Promise<{ allowed: boolean; remaining: number }> {
-  const today = getTodayUTC();
-  const ipHash = await hashIP(ip);
+function getUtcDayWindow(): {
+  key: string;
+  start: string;
+  resetAt: string;
+} {
+  const start = new Date();
+  start.setUTCHours(0, 0, 0, 0);
+  const reset = new Date(start);
+  reset.setUTCDate(reset.getUTCDate() + 1);
 
-  // In-memory rate limiting
-  const record = rateLimitMap.get(ipHash);
-  if (!record || record.date !== today) {
-    rateLimitMap.set(ipHash, { date: today, count: 1 });
-    return { allowed: true, remaining: DAILY_LIMIT - 1 };
-  }
-  if (record.count < DAILY_LIMIT) {
-    record.count++;
-    return { allowed: true, remaining: DAILY_LIMIT - record.count };
-  }
-  return { allowed: false, remaining: 0 };
+  return {
+    key: start.toISOString().slice(0, 10),
+    start: start.toISOString(),
+    resetAt: reset.toISOString(),
+  };
 }
 
-export interface BulletVariation {
-  id: string;
-  strategy: 'high-impact' | 'leadership' | 'concise';
-  label: string;
-  text: string;
-  highlights: {
-    type: 'metric' | 'verb' | 'keyword';
-    text: string;
-    start: number;
-    end: number;
-  }[];
+function getMinuteWindow(): { start: string; resetAt: string } {
+  const start = new Date();
+  start.setUTCSeconds(0, 0);
+  const reset = new Date(start.getTime() + 60_000);
+  return {
+    start: start.toISOString(),
+    resetAt: reset.toISOString(),
+  };
 }
 
-export interface ImproveBulletResponse {
-  original: string;
-  variations: BulletVariation[];
-}
+async function consumeAtomicQuota(params: {
+  request: NextRequest;
+  tier: 'free' | 'paid';
+  paidIdentity: string | null;
+}): Promise<ImproveBulletQuotaDecision> {
+  let bucket: string;
+  let windowStart: string;
+  let resetAt: string;
+  let limit: number;
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
-
-export async function POST(request: NextRequest) {
-  try {
-    // Check if API key is configured
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'AI service not available. Please configure your own API key.' },
-        { status: 503 }
-      );
+  if (params.tier === 'paid') {
+    if (!params.paidIdentity) {
+      throw new Error('Paid quota identity is missing');
     }
 
-    // Check if user has paid access - if so, skip rate limiting
-    const hasPaidAccess = await checkPaidAccess();
-    let successHeaders: Record<string, string> | undefined;
+    const identityHash = await hashQuotaIdentity(
+      `paid:${params.paidIdentity}`
+    );
+    const window = getMinuteWindow();
+    bucket = `improve-bullet:paid:${identityHash}`;
+    windowStart = window.start;
+    resetAt = window.resetAt;
+    limit = PAID_PER_MINUTE_LIMIT;
+  } else {
+    const identityHash = await hashQuotaIdentity(
+      `anonymous:${getAnonymousIdentitySeed(params.request)}`
+    );
+    const window = getUtcDayWindow();
+    bucket = `improve-bullet:anonymous:${window.key}:${identityHash}`;
+    windowStart = window.start;
+    resetAt = window.resetAt;
+    limit = FREE_DAILY_LIMIT;
+  }
 
-    if (!hasPaidAccess) {
-      // Apply rate limiting for non-paid users
-      const ip = getClientIP(request);
-      const { allowed, remaining } = await checkRateLimit(ip);
-
-      if (!allowed) {
-        return NextResponse.json(
-          {
-            error: 'Daily limit reached',
-            message: `You've used all ${DAILY_LIMIT} free bullet improvements for today. Subscribe for unlimited access.`,
-          },
-          {
-            status: 429,
-            headers: {
-              'X-RateLimit-Limit': DAILY_LIMIT.toString(),
-              'X-RateLimit-Remaining': '0',
-            },
-          }
-        );
+  const adminSupabase = createServiceRoleClient();
+  const quotaFunction = params.tier === 'paid'
+    ? 'consume_user_ai_rate_limit'
+    : 'consume_ai_rate_limit';
+  const quotaArguments = params.tier === 'paid'
+    ? {
+        p_bucket: bucket,
+        p_window_start: windowStart,
+        p_limit: limit,
+        p_user_id: params.paidIdentity,
       }
-
-      successHeaders = {
-        'X-RateLimit-Limit': DAILY_LIMIT.toString(),
-        'X-RateLimit-Remaining': remaining.toString(),
+    : {
+        p_bucket: bucket,
+        p_window_start: windowStart,
+        p_limit: limit,
       };
-    }
+  const { data, error } = await adminSupabase.rpc(
+    quotaFunction,
+    quotaArguments
+  );
 
-    const body = await request.json();
-    const { bullet, jobDescription, missingKeywords = [], gaps = [], recommendations = [] } = body;
+  if (error) {
+    throw new Error('Atomic AI quota check failed');
+  }
 
-    if (!bullet || bullet.trim().length < 10) {
-      return NextResponse.json(
-        { error: 'Please provide a bullet point to improve.' },
-        { status: 400 }
-      );
-    }
+  const result = Array.isArray(data) ? data[0] : data;
+  if (
+    typeof result?.allowed !== 'boolean'
+    || typeof result?.current_count !== 'number'
+  ) {
+    throw new Error('Atomic AI quota returned an invalid result');
+  }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  return {
+    allowed: result.allowed,
+    currentCount: result.current_count,
+    limit,
+    resetAt,
+  };
+}
 
-    const prompt = `You are a professional resume writer. Improve this resume bullet point by creating 3 variations.
+function buildPrompt(input: ImproveBulletInput): string {
+  return `You are a professional resume writer. Improve this resume bullet point by creating 3 variations.
 
 ORIGINAL BULLET:
-"${bullet}"
+"${input.bullet}"
 
-${jobDescription ? `JOB DESCRIPTION CONTEXT:
-${jobDescription.slice(0, 1000)}` : ''}
+${input.jobDescription ? `JOB DESCRIPTION CONTEXT:
+${input.jobDescription.slice(0, 1000)}` : ''}
 
-${missingKeywords.length > 0 ? `KEYWORDS TO INCORPORATE (if relevant):
-${missingKeywords.slice(0, 10).join(', ')}` : ''}
+${input.missingKeywords.length > 0 ? `KEYWORDS TO INCORPORATE (if relevant):
+${input.missingKeywords.slice(0, 10).join(', ')}` : ''}
 
-${Array.isArray(gaps) && gaps.length > 0 ? `KNOWN GAPS TO ADDRESS (if truthful):
-${gaps.slice(0, 5).join('; ')}` : ''}
+${input.gaps.length > 0 ? `KNOWN GAPS TO ADDRESS (if truthful):
+${input.gaps.slice(0, 5).join('; ')}` : ''}
 
-${Array.isArray(recommendations) && recommendations.length > 0 ? `RESUME IMPROVEMENT PRIORITIES:
-${recommendations.slice(0, 5).join('; ')}` : ''}
+${input.recommendations.length > 0 ? `RESUME IMPROVEMENT PRIORITIES:
+${input.recommendations.slice(0, 5).join('; ')}` : ''}
 
 Generate exactly 3 variations:
 
 1. HIGH IMPACT - Focus on quantifiable results, metrics, and numbers. If the original lacks numbers, add realistic placeholders like "X%" or "[number]" that the user can fill in.
-
-2. LEADERSHIP - Focus on strong action verbs that demonstrate leadership, initiative, and ownership. Start with powerful verbs like: Spearheaded, Orchestrated, Championed, Pioneered, Transformed.
-
-3. CONCISE - Make it shorter and punchier while keeping the core message. Remove filler words and unnecessary qualifiers.
+2. LEADERSHIP - Focus on strong action verbs that demonstrate leadership, initiative, and ownership.
+3. CONCISE - Make it shorter and punchier while keeping the core message.
 
 RULES:
 - Keep each variation under 150 characters
 - Maintain professional tone
-- Don't invent specific numbers (use placeholders)
+- Do not invent specific numbers; use placeholders
 - Start each bullet with a strong action verb
-- Each variation should be meaningfully different
+- Make each variation meaningfully different
 
-Respond in this exact JSON format:
+Respond with JSON only:
 {
   "variations": [
     {
       "strategy": "high-impact",
       "text": "your improved bullet here",
-      "highlights": [
-        {"type": "metric", "text": "the metric text"}
-      ]
+      "highlights": [{"type": "metric", "text": "the metric text"}]
     },
     {
       "strategy": "leadership",
       "text": "your improved bullet here",
-      "highlights": [
-        {"type": "verb", "text": "the action verb"}
-      ]
+      "highlights": [{"type": "verb", "text": "the action verb"}]
     },
     {
       "strategy": "concise",
@@ -224,73 +257,137 @@ Respond in this exact JSON format:
     }
   ]
 }`;
+}
 
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
-
-    // Parse JSON response
-    let parsed;
-    try {
-      // Try direct parse
-      parsed = JSON.parse(response);
-    } catch {
-      // Try extracting from code block
-      const codeBlockMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-      if (codeBlockMatch) {
-        parsed = JSON.parse(codeBlockMatch[1]);
-      } else {
-        // Try finding JSON object
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error('No valid JSON in response');
-        }
-      }
-    }
-
-    // Add IDs and labels to variations
-    const strategyLabels: Record<string, string> = {
-      'high-impact': 'High Impact',
-      'leadership': 'Leadership',
-      'concise': 'Concise',
-    };
-
-    const variations: BulletVariation[] = parsed.variations.map(
-      (v: { strategy: string; text: string; highlights?: { type: string; text: string }[] }, i: number) => {
-        // Calculate highlight positions
-        const highlights = (v.highlights || []).map((h: { type: string; text: string }) => {
-          const start = v.text.indexOf(h.text);
-          return {
-            type: h.type as 'metric' | 'verb' | 'keyword',
-            text: h.text,
-            start,
-            end: start + h.text.length,
-          };
-        }).filter((h: { start: number }) => h.start >= 0);
-
-        return {
-          id: `var-${i}-${Date.now()}`,
-          strategy: v.strategy,
-          label: strategyLabels[v.strategy] || v.strategy,
-          text: v.text,
-          highlights,
-        };
-      }
+function parseProviderJson(response: string): unknown {
+  try {
+    return JSON.parse(response);
+  } catch {
+    const codeBlockMatch = response.match(
+      /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
     );
+    if (codeBlockMatch) return JSON.parse(codeBlockMatch[1]);
 
-    return NextResponse.json(
-      {
-        original: bullet,
-        variations,
-      },
-      successHeaders ? { headers: successHeaders } : undefined
-    );
-  } catch (error) {
-    console.error('Bullet improvement error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to improve bullet' },
-      { status: 500 }
-    );
+    const objectMatch = response.match(/\{[\s\S]*\}/);
+    if (objectMatch) return JSON.parse(objectMatch[0]);
+
+    throw new Error('Provider returned invalid JSON');
   }
+}
+
+function isStrategy(
+  value: unknown
+): value is BulletVariation['strategy'] {
+  return value === 'high-impact'
+    || value === 'leadership'
+    || value === 'concise';
+}
+
+function normalizeVariations(value: unknown): BulletVariation[] {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Provider response is not an object');
+  }
+
+  const rawVariations = (value as { variations?: unknown }).variations;
+  if (!Array.isArray(rawVariations)) {
+    throw new Error('Provider response has no variations');
+  }
+
+  const strategyLabels: Record<BulletVariation['strategy'], string> = {
+    'high-impact': 'High Impact',
+    leadership: 'Leadership',
+    concise: 'Concise',
+  };
+
+  const variations = rawVariations
+    .slice(0, 3)
+    .flatMap((rawVariation, index): BulletVariation[] => {
+      if (!rawVariation || typeof rawVariation !== 'object') return [];
+
+      const raw = rawVariation as {
+        strategy?: unknown;
+        text?: unknown;
+        highlights?: unknown;
+      };
+      if (!isStrategy(raw.strategy) || typeof raw.text !== 'string') return [];
+
+      const text = raw.text.trim();
+      if (!text) return [];
+
+      const rawHighlights = Array.isArray(raw.highlights)
+        ? raw.highlights.slice(0, 10)
+        : [];
+      const highlights: BulletVariation['highlights'] = rawHighlights.flatMap(
+        (rawHighlight): BulletVariation['highlights'] => {
+        if (!rawHighlight || typeof rawHighlight !== 'object') return [];
+        const highlight = rawHighlight as {
+          type?: unknown;
+          text?: unknown;
+        };
+        if (
+          highlight.type !== 'metric'
+          && highlight.type !== 'verb'
+          && highlight.type !== 'keyword'
+        ) {
+          return [];
+        }
+        if (typeof highlight.text !== 'string') return [];
+
+        const highlightText = highlight.text.trim();
+        const start = text.indexOf(highlightText);
+        if (!highlightText || start < 0) return [];
+
+        return [{
+          type: highlight.type,
+          text: highlightText,
+          start,
+          end: start + highlightText.length,
+        }];
+        }
+      );
+
+      return [{
+        id: `var-${index}-${crypto.randomUUID()}`,
+        strategy: raw.strategy,
+        label: strategyLabels[raw.strategy],
+        text,
+        highlights,
+      }];
+    });
+
+  if (variations.length === 0) {
+    throw new Error('Provider returned no usable variations');
+  }
+
+  return variations;
+}
+
+async function generateBulletVariations(
+  input: ImproveBulletInput
+): Promise<ImproveBulletResponse> {
+  const apiKey = getProviderKey();
+  if (!apiKey) throw new Error('AI provider is unavailable');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const result = await model.generateContent(buildPrompt(input));
+  const parsed = parseProviderJson(result.response.text());
+
+  return {
+    original: input.bullet,
+    variations: normalizeVariations(parsed),
+  };
+}
+
+export async function POST(request: NextRequest): Promise<Response> {
+  return handleImproveBulletRequest(request, {
+    isProviderConfigured: () => getProviderKey() !== null,
+    resolvePaidIdentity: () => resolvePaidIdentity(request),
+    consumeQuota: ({ tier, paidIdentity }) => consumeAtomicQuota({
+      request,
+      tier,
+      paidIdentity,
+    }),
+    generate: generateBulletVariations,
+  });
 }

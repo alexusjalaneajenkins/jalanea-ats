@@ -13,8 +13,13 @@
  * Simulates: Workday HiredScore, iCIMS Role Fit, Taleo ACE
  */
 
-import { LlmConfig, fetchWithRetry } from '../llm/types';
-import { calculateSemanticSimilarity, generateEmbedding, cosineSimilarity } from '../llm/embeddings';
+import {
+  LlmConfig,
+  fetchWithRetry,
+  isAbortError,
+  throwIfAborted,
+} from '../llm/types';
+import { calculateSemanticSimilarity } from '../llm/embeddings';
 import { geminiProvider } from '../llm/gemini';
 
 // ============================================================================
@@ -79,8 +84,11 @@ const WEIGHTS = {
 export async function calculateSemanticMatch(
   resumeText: string,
   jobDescription: string,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SemanticMatchResult> {
+  throwIfAborted(signal);
+
   // Validate config
   if (!config.hasConsented) {
     return createErrorResult('User consent required for AI features');
@@ -95,8 +103,10 @@ export async function calculateSemanticMatch(
     const overallSimilarity = await calculateSemanticSimilarity(
       resumeText,
       jobDescription,
-      config
+      config,
+      signal
     );
+    throwIfAborted(signal);
 
     // Step 2: Extract sections from JD for granular analysis
     const jdSections = extractJDSections(jobDescription);
@@ -104,14 +114,21 @@ export async function calculateSemanticMatch(
 
     // Step 3: Calculate sub-scores using embeddings
     const [skillsMatch, experienceFit, domainRelevance, roleAlignment] = await Promise.all([
-      calculateSkillsMatch(resumeText, resumeSections, jdSections, config),
-      calculateExperienceFit(resumeText, resumeSections, jdSections, config),
-      calculateDomainRelevance(resumeText, resumeSections, jdSections, config),
-      calculateRoleAlignment(resumeText, resumeSections, jdSections, config),
+      calculateSkillsMatch(resumeText, resumeSections, jdSections, config, signal),
+      calculateExperienceFit(resumeText, resumeSections, jdSections, config, signal),
+      calculateDomainRelevance(resumeText, resumeSections, jdSections, config, signal),
+      calculateRoleAlignment(resumeText, resumeSections, jdSections, config, signal),
     ]);
+    throwIfAborted(signal);
 
     // Step 4: Get AI analysis using LLM
-    const analysis = await getAIAnalysis(resumeText, jobDescription, config);
+    const analysis = await getAIAnalysis(
+      resumeText,
+      jobDescription,
+      config,
+      signal
+    );
+    throwIfAborted(signal);
 
     // Step 5: Calculate weighted overall score
     const overallScore = Math.round(
@@ -141,6 +158,7 @@ export async function calculateSemanticMatch(
       analysis,
     };
   } catch (error) {
+    if (isAbortError(error, signal)) throw error;
     return createErrorResult(
       error instanceof Error ? error.message : 'Unknown error during semantic analysis'
     );
@@ -167,8 +185,6 @@ interface ResumeSections {
 }
 
 function extractJDSections(jd: string): JDSections {
-  const lower = jd.toLowerCase();
-
   // Find requirements section
   const reqPatterns = [
     /requirements?:?\s*([\s\S]*?)(?=responsibilities|qualifications|about|benefits|$)/i,
@@ -304,13 +320,19 @@ async function calculateSkillsMatch(
   resumeText: string,
   resumeSections: ResumeSections,
   jdSections: JDSections,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SubScore> {
   // Compare resume skills with JD requirements
   const skillsText = resumeSections.skills || resumeText;
   const requirementsText = jdSections.requirements || jdSections.full;
 
-  const similarity = await calculateSemanticSimilarity(skillsText, requirementsText, config);
+  const similarity = await calculateSemanticSimilarity(
+    skillsText,
+    requirementsText,
+    config,
+    signal
+  );
 
   const score = similarity.success && similarity.similarity
     ? Math.round(similarity.similarity * 100)
@@ -331,13 +353,19 @@ async function calculateExperienceFit(
   resumeText: string,
   resumeSections: ResumeSections,
   jdSections: JDSections,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SubScore> {
   // Compare resume experience with JD responsibilities
   const experienceText = resumeSections.experience || resumeText;
   const responsibilitiesText = jdSections.responsibilities || jdSections.full;
 
-  const similarity = await calculateSemanticSimilarity(experienceText, responsibilitiesText, config);
+  const similarity = await calculateSemanticSimilarity(
+    experienceText,
+    responsibilitiesText,
+    config,
+    signal
+  );
 
   // Also check for years of experience
   const yearsMatch = checkYearsOfExperience(resumeText, jdSections.full);
@@ -349,7 +377,7 @@ async function calculateExperienceFit(
   // Blend embedding score with years match
   const score = Math.round(embeddingScore * 0.7 + yearsMatch * 0.3);
 
-  const highlights = getExperienceHighlights(score, resumeText, jdSections);
+  const highlights = getExperienceHighlights(score);
 
   return {
     score,
@@ -363,12 +391,18 @@ async function calculateDomainRelevance(
   resumeText: string,
   resumeSections: ResumeSections,
   jdSections: JDSections,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SubScore> {
   // Compare overall domain/industry alignment
   const aboutText = jdSections.about || jdSections.full.slice(0, 1000);
 
-  const similarity = await calculateSemanticSimilarity(resumeText, aboutText, config);
+  const similarity = await calculateSemanticSimilarity(
+    resumeText,
+    aboutText,
+    config,
+    signal
+  );
 
   // Also check for industry keywords
   const industryMatch = checkIndustryKeywords(resumeText, jdSections.full);
@@ -379,7 +413,7 @@ async function calculateDomainRelevance(
 
   const score = Math.round(embeddingScore * 0.6 + industryMatch * 0.4);
 
-  const highlights = getDomainHighlights(score, resumeText, jdSections);
+  const highlights = getDomainHighlights(score);
 
   return {
     score,
@@ -393,12 +427,18 @@ async function calculateRoleAlignment(
   resumeText: string,
   resumeSections: ResumeSections,
   jdSections: JDSections,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SubScore> {
   // Compare title and responsibilities alignment
   const responsibilitiesText = jdSections.responsibilities || jdSections.full;
 
-  const similarity = await calculateSemanticSimilarity(resumeText, responsibilitiesText, config);
+  const similarity = await calculateSemanticSimilarity(
+    resumeText,
+    responsibilitiesText,
+    config,
+    signal
+  );
 
   // Check title alignment
   const titleMatch = checkTitleAlignment(resumeText, jdSections.full);
@@ -409,7 +449,7 @@ async function calculateRoleAlignment(
 
   const score = Math.round(embeddingScore * 0.6 + titleMatch * 0.4);
 
-  const highlights = getRoleHighlights(score, resumeText, jdSections);
+  const highlights = getRoleHighlights(score);
 
   return {
     score,
@@ -571,7 +611,7 @@ function getSkillsHighlights(score: number, resumeText: string, jdSections: JDSe
   return highlights;
 }
 
-function getExperienceHighlights(score: number, resumeText: string, jdSections: JDSections): string[] {
+function getExperienceHighlights(score: number): string[] {
   const highlights: string[] = [];
 
   if (score >= 70) {
@@ -583,7 +623,7 @@ function getExperienceHighlights(score: number, resumeText: string, jdSections: 
   return highlights;
 }
 
-function getDomainHighlights(score: number, resumeText: string, jdSections: JDSections): string[] {
+function getDomainHighlights(score: number): string[] {
   const highlights: string[] = [];
 
   if (score >= 70) {
@@ -595,7 +635,7 @@ function getDomainHighlights(score: number, resumeText: string, jdSections: JDSe
   return highlights;
 }
 
-function getRoleHighlights(score: number, resumeText: string, jdSections: JDSections): string[] {
+function getRoleHighlights(score: number): string[] {
   const highlights: string[] = [];
 
   if (score >= 70) {
@@ -614,8 +654,10 @@ function getRoleHighlights(score: number, resumeText: string, jdSections: JDSect
 async function getAIAnalysis(
   resumeText: string,
   jobDescription: string,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<SemanticMatchResult['analysis']> {
+  throwIfAborted(signal);
   // Default analysis if LLM call fails
   const defaultAnalysis = {
     strengths: ['Resume submitted for analysis'],
@@ -652,8 +694,10 @@ ${jobDescription.slice(0, 1800)}`;
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' },
         }),
+        signal,
       }
     );
+    throwIfAborted(signal);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -734,6 +778,7 @@ ${jobDescription.slice(0, 1800)}`;
       summary: typeof parsed.summary === 'string' ? parsed.summary : defaultAnalysis.summary,
     };
   } catch (error) {
+    if (isAbortError(error, signal)) throw error;
     console.error('[AI Analysis] Exception:', error);
 
     const errorAnalysis = { ...defaultAnalysis };

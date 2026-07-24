@@ -3,6 +3,7 @@
  */
 
 import type { ParsedResume } from './types';
+import { extractGeminiText, parseResumePayload } from './validation';
 
 const RESUME_PARSE_PROMPT = `Parse this resume into the following JSON structure. Only include fields that are clearly present in the text. Do not infer or fabricate any information.
 
@@ -106,7 +107,8 @@ const RESUME_SCHEMA = {
 export async function parseResumeWithGemini(
   resumeText: string,
   apiKey: string,
-  model: string = 'gemini-2.5-flash'
+  model: string = 'gemini-2.5-flash',
+  signal?: AbortSignal
 ): Promise<{ parsed: ParsedResume; warnings: string[] }> {
   const warnings: string[] = [];
 
@@ -130,22 +132,22 @@ export async function parseResumeWithGemini(
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
         ],
       }),
+      signal,
     }
   );
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`Gemini resume parse failed (${response.status}): ${errorText.slice(0, 200)}`);
+    throw new Error(`Resume analysis provider request failed (${response.status})`);
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('').trim();
+  const data: unknown = await response.json();
+  const text = extractGeminiText(data);
 
   if (!text) {
-    throw new Error('Gemini returned empty response for resume parsing');
+    throw new Error('Resume analysis provider returned no usable result');
   }
 
-  const parsed: ParsedResume = JSON.parse(text);
+  const parsed: ParsedResume = parseResumePayload(text);
 
   // Validation warnings
   if (!parsed.contactInfo?.name) {

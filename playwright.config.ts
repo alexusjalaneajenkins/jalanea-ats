@@ -21,7 +21,9 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: `yarn dev --hostname 127.0.0.1 --port ${defaultPort}`,
+        command: isCI
+          ? `yarn start --hostname 127.0.0.1 --port ${defaultPort}`
+          : `yarn dev --hostname 127.0.0.1 --port ${defaultPort}`,
         url: baseURL,
         reuseExistingServer: false,
         timeout: 120000,

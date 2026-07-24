@@ -1,7 +1,7 @@
 'use client';
 
 import { Info, ChevronDown } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ParseHealthCardProps {
@@ -34,19 +34,6 @@ export function ParseHealthCard({
   const { color, bgColor, label, textColor } = getScoreStyle(score);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showCelebration, setShowCelebration] = useState(false);
-
-  // Confidence is high when we have clear signals
-  const confidence = score >= 70 ? 'High' : score >= 40 ? 'Medium' : 'Low';
-
-  // Show celebration animation for high scores on mount
-  useEffect(() => {
-    if (score > THRESHOLD) {
-      setShowCelebration(true);
-      const timer = setTimeout(() => setShowCelebration(false), 600);
-      return () => clearTimeout(timer);
-    }
-  }, [score]);
 
   // Check if sub-scores are available
   const hasSubScores = layoutScore !== undefined || contactScore !== undefined || sectionScore !== undefined;
@@ -127,7 +114,7 @@ export function ParseHealthCard({
       </div>
 
       {/* Circular score */}
-      <div className={`flex justify-center mb-3 ${showCelebration ? 'animate-celebrate' : ''}`}>
+      <div className={`flex justify-center mb-3 ${score > THRESHOLD ? 'animate-celebrate' : ''}`}>
         <div className="relative">
           <svg
             className="w-20 h-20 transform -rotate-90"

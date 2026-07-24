@@ -196,7 +196,7 @@ export function OptimizationTips() {
       <div className="p-4 bg-indigo-950/50 rounded-xl border border-indigo-500/20">
         <h4 className="text-sm font-bold text-white mb-2">Remember</h4>
         <p className="text-sm text-indigo-300">
-          The goal isn't to "trick" the ATS—it's to present your qualifications clearly so both
+          The goal isn&apos;t to &ldquo;trick&rdquo; the ATS—it&apos;s to present your qualifications clearly so both
           the system and the recruiter can quickly understand your fit. A well-optimized resume
           benefits everyone in the process.
         </p>

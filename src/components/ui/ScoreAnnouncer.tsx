@@ -41,7 +41,9 @@ export function ScoreAnnouncer({
         const initialMessage = scores
           .map((s) => `${s.name}: ${s.value}${s.label ? `, ${s.label}` : ''}`)
           .join('. ');
-        setAnnouncement(`Analysis complete. ${initialMessage}`);
+        queueMicrotask(() => {
+          setAnnouncement(`Analysis complete. ${initialMessage}`);
+        });
       }
       prevScoresRef.current = scores;
       return;
@@ -59,7 +61,8 @@ export function ScoreAnnouncer({
     });
 
     if (changes.length > 0) {
-      setAnnouncement(changes.join('. '));
+      const nextAnnouncement = changes.join('. ');
+      queueMicrotask(() => setAnnouncement(nextAnnouncement));
     }
 
     prevScoresRef.current = scores;

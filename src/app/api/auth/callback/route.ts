@@ -7,18 +7,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { getSafeRedirectPath } from '@/lib/auth/redirects';
+
+function authErrorRedirect(request: NextRequest, code: string) {
+  const errorUrl = new URL('/auth/error', request.nextUrl.origin);
+  errorUrl.searchParams.set('code', code);
+  return NextResponse.redirect(errorUrl);
+}
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
-  const redirectTo = requestUrl.searchParams.get('redirect_to');
+  const code = request.nextUrl.searchParams.get('code');
+  const redirectTo = request.nextUrl.searchParams.get('redirect_to');
+  const providerError =
+    request.nextUrl.searchParams.get('error') ||
+    request.nextUrl.searchParams.get('error_code');
 
-  if (code) {
+  if (providerError) {
+    return authErrorRedirect(request, 'provider_denied');
+  }
+
+  if (!code) {
+    return authErrorRedirect(request, 'missing_code');
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return authErrorRedirect(request, 'auth_unavailable');
+  }
+
+  try {
     const cookieStore = await cookies();
 
     const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      supabaseUrl,
+      supabaseAnonKey,
       {
         cookies: {
           getAll() {
@@ -33,13 +56,14 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      return authErrorRedirect(request, 'exchange_failed');
+    }
+  } catch {
+    return authErrorRedirect(request, 'exchange_failed');
   }
 
-  // Redirect to specified page or default to account
-  // Validate redirect_to is a relative path to prevent open redirect
-  const safePath = redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')
-    ? redirectTo
-    : '/account';
-  return NextResponse.redirect(new URL(safePath, request.url));
+  const safePath = getSafeRedirectPath(redirectTo, '/account');
+  return NextResponse.redirect(new URL(safePath, request.nextUrl.origin));
 }

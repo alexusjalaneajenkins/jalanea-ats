@@ -7,8 +7,8 @@
  * Includes validation and preference management.
  */
 
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import {
   X,
   Key,
@@ -30,7 +30,10 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from '@/lib/llm/types';
 import { geminiProvider } from '@/lib/llm/gemini';
+import { saveAndCloseByok } from '@/lib/llm/byokSave';
+import { createByokDraft } from '@/lib/llm/byokDraft';
 import Link from 'next/link';
+import { Dialog } from '@/components/ui/Dialog';
 
 // ============================================================================
 // Types
@@ -39,16 +42,15 @@ import Link from 'next/link';
 interface ByokKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (config: LlmConfig) => void;
+  onSave: (config: LlmConfig) => Promise<void>;
   currentConfig?: LlmConfig;
   isAuthenticated: boolean;
   hasActiveSubscription: boolean;
   isAuthLoading?: boolean;
+  isConfigLoading?: boolean;
 }
 
 const GEMINI_KEY_URL = 'https://aistudio.google.com/apikey';
-const GEMINI_KEY_FORMAT = 'AIza...';
-
 // ============================================================================
 // Component
 // ============================================================================
@@ -61,6 +63,7 @@ export function ByokKeyModal({
   isAuthenticated,
   hasActiveSubscription,
   isAuthLoading = false,
+  isConfigLoading = false,
 }: ByokKeyModalProps) {
   // State
   const provider: LlmConfig['provider'] = 'gemini';
@@ -70,6 +73,10 @@ export function ByokKeyModal({
   const [apiKey, setApiKey] = useState(currentConfig?.apiKey || '');
   const [showKey, setShowKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
+  const draftDirtyRef = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<boolean | null>(null);
   const [preferences, setPreferences] = useState(
     currentConfig?.preferences || DEFAULT_LLM_CONFIG.preferences
@@ -79,12 +86,39 @@ export function ByokKeyModal({
   const [keyMode, setKeyMode] = useState<'demo' | 'byok'>(
     currentConfig?.apiKey ? 'byok' : 'demo'
   );
-  const canUseByok = !isAuthLoading && isAuthenticated && hasActiveSubscription;
+  const canUseByok =
+    !isAuthLoading
+    && !isConfigLoading
+    && isAuthenticated
+    && hasActiveSubscription;
+
+  // The modal stays mounted while the owner-scoped IndexedDB record loads.
+  // Hydrate a fresh draft when that load completes or whenever the modal is
+  // reopened, but never replace fields the user is actively editing/saving.
+  useEffect(() => {
+    if (!isOpen) {
+      draftDirtyRef.current = false;
+      return;
+    }
+
+    if (isConfigLoading || isSavingRef.current || draftDirtyRef.current) return;
+
+    const draft = createByokDraft(currentConfig);
+    setGeminiModel(draft.geminiModel);
+    setApiKey(draft.apiKey);
+    setPreferences(draft.preferences);
+    setKeyMode(draft.keyMode);
+    setValidationResult(null);
+  }, [currentConfig, isConfigLoading, isOpen]);
 
   // Reset validation when key or model changes
   useEffect(() => {
     setValidationResult(null);
   }, [apiKey, geminiModel]);
+
+  useEffect(() => {
+    if (isOpen) setSaveError(null);
+  }, [isOpen]);
 
   // Enforce hard gate: if BYOK access is lost, force demo mode.
   useEffect(() => {
@@ -117,8 +151,12 @@ export function ByokKeyModal({
   };
 
   // Handle save
-  const handleSave = () => {
-    if (keyMode === 'byok' && !canUseByok) return;
+  const handleSave = async () => {
+    if (
+      isConfigLoading
+      || isSavingRef.current
+      || (keyMode === 'byok' && !canUseByok)
+    ) return;
 
     const config: LlmConfig = {
       provider,
@@ -129,12 +167,21 @@ export function ByokKeyModal({
       consentTimestamp: keyMode === 'byok' ? currentConfig?.consentTimestamp : undefined,
       preferences,
     };
-    onSave(config);
-    onClose();
+    isSavingRef.current = true;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const error = await saveAndCloseByok(config, onSave, onClose);
+      if (error) setSaveError(error);
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   // Toggle preference
   const togglePreference = (key: keyof typeof preferences) => {
+    draftDirtyRef.current = true;
     setPreferences((prev) => ({
       ...prev,
       [key]: !prev[key],
@@ -142,24 +189,19 @@ export function ByokKeyModal({
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-          onClick={onClose}
-        />
-
-        {/* Modal */}
+    <Dialog
+      isOpen={isOpen}
+      onClose={() => {
+        if (!isSaving) onClose();
+      }}
+      labelledBy="byok-modal-title"
+      closeOnBackdrop={!isSaving}
+    >
+      <div className="flex min-h-[100dvh] items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-lg mx-4 bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden max-h-[90vh] flex flex-col"
+          className="relative w-full max-w-lg bg-slate-900 rounded-2xl shadow-2xl border border-slate-700/50 overflow-hidden max-h-[90vh] flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50 shrink-0">
@@ -167,12 +209,14 @@ export function ByokKeyModal({
               <div className="p-2 bg-amber-500/10 rounded-lg">
                 <Key className="w-5 h-5 text-amber-400" />
               </div>
-              <h2 className="text-lg font-semibold text-white">
+              <h2 id="byok-modal-title" className="text-lg font-semibold text-white">
                 AI Assistant Settings
               </h2>
             </div>
             <button
               onClick={onClose}
+              disabled={isSaving}
+              aria-label="Close AI settings"
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
@@ -205,14 +249,22 @@ export function ByokKeyModal({
 
           {/* Content */}
           <div className="p-6 overflow-y-auto flex-1">
-            {activeTab === 'key' ? (
+            {isConfigLoading ? (
+              <div
+                className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-300"
+                role="status"
+              >
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Loading your saved AI settings…
+              </div>
+            ) : activeTab === 'key' ? (
               <div className="space-y-6">
                 {/* Start helper */}
                 <div className="p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30">
                   <p className="text-sm font-semibold text-cyan-300 mb-2">Where do I start?</p>
                   <ol className="text-xs text-cyan-100/90 space-y-1">
                     <li>1. Use Demo Mode first (3 free analyses/day).</li>
-                    <li>2. "My Own Key" is optional and for unlimited usage.</li>
+                    <li>2. &ldquo;My Own Key&rdquo; is optional and for unlimited usage.</li>
                     <li>3. Gemini keys come from Google AI Studio.</li>
                   </ol>
                 </div>
@@ -225,7 +277,10 @@ export function ByokKeyModal({
                   <div className="grid grid-cols-2 gap-3">
                     {/* Demo Mode */}
                     <button
-                      onClick={() => setKeyMode('demo')}
+                      onClick={() => {
+                        draftDirtyRef.current = true;
+                        setKeyMode('demo');
+                      }}
                       className={`relative p-4 rounded-xl border text-left transition-all ${
                         keyMode === 'demo'
                           ? 'border-emerald-500/50 bg-emerald-500/10'
@@ -256,7 +311,10 @@ export function ByokKeyModal({
 
                     {/* BYOK Mode */}
                     <button
-                      onClick={() => setKeyMode('byok')}
+                      onClick={() => {
+                        draftDirtyRef.current = true;
+                        setKeyMode('byok');
+                      }}
                       disabled={!canUseByok}
                       className={`relative p-4 rounded-xl border text-left transition-all ${
                         keyMode === 'byok'
@@ -304,7 +362,7 @@ export function ByokKeyModal({
                           Demo mode remains available right now, even without an account.
                         </p>
                         <p className="text-xs text-amber-200/80">
-                          After subscribing, return here and switch to "My Own Key".
+                          After subscribing, return here and switch to &ldquo;My Own Key&rdquo;.
                         </p>
                         <div className="flex items-center gap-2">
                           {!isAuthenticated ? (
@@ -366,7 +424,10 @@ export function ByokKeyModal({
                         {GEMINI_MODELS.map((model) => (
                           <button
                             key={model.id}
-                            onClick={() => setGeminiModel(model.id)}
+                            onClick={() => {
+                              draftDirtyRef.current = true;
+                              setGeminiModel(model.id);
+                            }}
                             className={`relative p-3 rounded-xl border text-left transition-all ${
                               geminiModel === model.id
                                 ? 'border-cyan-500/50 bg-cyan-500/10'
@@ -415,7 +476,10 @@ export function ByokKeyModal({
                         <input
                           type={showKey ? 'text' : 'password'}
                           value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
+                          onChange={(e) => {
+                            draftDirtyRef.current = true;
+                            setApiKey(e.target.value);
+                          }}
                           placeholder="Paste your API key here"
                           className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 pr-24"
                         />
@@ -480,8 +544,8 @@ export function ByokKeyModal({
                         Get a Gemini key in 60 seconds
                       </p>
                       <ol className="text-xs text-slate-400 space-y-1">
-                        <li>1. Click "Open Google AI Studio".</li>
-                        <li>2. Click "Get API key" and create one.</li>
+                        <li>1. Click &ldquo;Open Google AI Studio&rdquo;.</li>
+                        <li>2. Click &ldquo;Get API key&rdquo; and create one.</li>
                         <li>3. Copy the key and paste it here.</li>
                       </ol>
                     </div>
@@ -532,25 +596,39 @@ export function ByokKeyModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-slate-700/50 flex justify-end gap-3 shrink-0">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isValidating || (keyMode === 'byok' && !canUseByok)}
-              className="px-4 py-2 text-sm font-medium bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Save Settings
-            </button>
+          <div className="px-6 py-4 border-t border-slate-700/50 shrink-0">
+            {saveError && (
+              <div
+                role="alert"
+                className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+              >
+                {saveError}
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={onClose}
+                disabled={isSaving}
+                className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSave()}
+                disabled={
+                  isSaving ||
+                  isValidating ||
+                  (keyMode === 'byok' && !canUseByok)
+                }
+                className="px-4 py-2 text-sm font-medium bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isSaving ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
           </div>
         </motion.div>
       </div>
-      )}
-    </AnimatePresence>
+    </Dialog>
   );
 }
 

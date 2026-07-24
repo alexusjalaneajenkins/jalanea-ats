@@ -37,16 +37,21 @@ export function useProgress() {
 
   // Load progress from localStorage on mount
   useEffect(() => {
+    let restoredProgress: UserProgress | null = null;
     try {
       const stored = localStorage.getItem(PROGRESS_STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored) as UserProgress;
-        setProgress(parsed);
+        restoredProgress = JSON.parse(stored) as UserProgress;
       }
     } catch {
       // localStorage not available or invalid JSON
     }
-    setIsLoaded(true);
+    queueMicrotask(() => {
+      if (restoredProgress) {
+        setProgress(restoredProgress);
+      }
+      setIsLoaded(true);
+    });
   }, []);
 
   // Save progress to localStorage

@@ -1,17 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { runV2Analysis } from '@/lib/v2';
+import { handleV2AnalysisRequest } from '@/lib/v2/request';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
-const MAX_RESUME_CHARS = 30000;
-const MAX_JD_CHARS = 20000;
-const OWNER_UNLIMITED_EMAILS = new Set(['alexxusjenkins91@gmail.com']);
+const MAX_REQUESTS_PER_MINUTE = 5;
+const V2_MODEL = 'gemini-2.5-flash';
 
-function getClientIP(request: NextRequest): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  const realIp = request.headers.get('x-real-ip');
-  return forwardedFor ? forwardedFor.split(',')[0].trim() : (realIp?.trim() || 'unknown');
+interface AuthorizedUser {
+  id: string;
 }
 
 function createRequestSupabaseClient(request: NextRequest) {
@@ -21,63 +20,87 @@ function createRequestSupabaseClient(request: NextRequest) {
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
-      getAll() { return request.cookies.getAll(); },
-      setAll() { /* read-only */ },
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll() {
+        // This endpoint only reads the authenticated session.
+      },
     },
   });
 }
 
-async function isOwnerOrAuthenticated(request: NextRequest): Promise<boolean> {
-  try {
-    const supabase = createRequestSupabaseClient(request);
-    if (!supabase) return false;
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user?.email) return false;
-    return OWNER_UNLIMITED_EMAILS.has(user.email.trim().toLowerCase());
-  } catch {
-    return false;
+async function getAuthorizedUser(request: NextRequest): Promise<AuthorizedUser | null> {
+  const supabase = createRequestSupabaseClient(request);
+  if (!supabase) return null;
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) return null;
+
+  const adminSupabase = createServiceRoleClient();
+  const { data: hasAccess, error: subscriptionError } = await adminSupabase
+    .rpc('has_active_access', {
+      check_user_id: user.id,
+    });
+
+  if (subscriptionError) {
+    console.error('V2 subscription lookup failed', {
+      code: subscriptionError.code,
+    });
+    throw new Error('Subscription lookup failed');
   }
+
+  return hasAccess === true ? { id: user.id } : null;
+}
+
+function getCurrentMinuteWindow(): string {
+  const now = new Date();
+  now.setUTCSeconds(0, 0);
+  return now.toISOString();
+}
+
+async function consumeRateLimit(userId: string): Promise<boolean> {
+  const adminSupabase = createServiceRoleClient();
+  const { data, error } = await adminSupabase.rpc('consume_user_ai_rate_limit', {
+    p_bucket: `analyze-v2:${userId}`,
+    p_window_start: getCurrentMinuteWindow(),
+    p_limit: MAX_REQUESTS_PER_MINUTE,
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.error('V2 rate-limit check failed', { code: error.code });
+    throw new Error('Rate-limit lookup failed');
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+  return result?.allowed === true;
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.DEMO_GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'Gemini API key not configured on server' },
-        { status: 503 }
+  return handleV2AnalysisRequest(request, {
+    isProviderConfigured: () =>
+      Boolean(process.env.GEMINI_API_KEY || process.env.DEMO_GEMINI_API_KEY),
+    authorize: (incomingRequest) =>
+      getAuthorizedUser(incomingRequest as NextRequest),
+    consumeQuota: consumeRateLimit,
+    analyze: (resume, jobDescription, signal) => {
+      const apiKey =
+        process.env.GEMINI_API_KEY || process.env.DEMO_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error('Provider unavailable');
+      }
+      return runV2Analysis(
+        resume,
+        jobDescription,
+        apiKey,
+        V2_MODEL,
+        signal
       );
-    }
-
-    const body = await request.json();
-    const rawResume = typeof body?.resume === 'string' ? body.resume.trim() : '';
-    const rawJD = typeof body?.jobDescription === 'string' ? body.jobDescription.trim() : '';
-    const model = body?.model || 'gemini-2.5-flash';
-
-    if (!rawResume || rawResume.length < 50) {
-      return NextResponse.json({ error: 'Resume text too short or missing' }, { status: 400 });
-    }
-    if (!rawJD || rawJD.length < 50) {
-      return NextResponse.json({ error: 'Job description too short or missing' }, { status: 400 });
-    }
-
-    // Truncate if needed
-    const resume = rawResume.length > MAX_RESUME_CHARS
-      ? rawResume.slice(0, MAX_RESUME_CHARS) + '\n[truncated]'
-      : rawResume;
-    const jobDescription = rawJD.length > MAX_JD_CHARS
-      ? rawJD.slice(0, MAX_JD_CHARS) + '\n[truncated]'
-      : rawJD;
-
-    // Run the full V2 engine
-    const result = await runV2Analysis(resume, jobDescription, apiKey, model);
-
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('V2 Analysis Error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'V2 analysis failed' },
-      { status: 500 }
-    );
-  }
+    },
+  });
 }

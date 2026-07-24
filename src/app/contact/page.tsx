@@ -1,23 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sparkles, ArrowLeft, Send, Mail, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowLeft, Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { CONTACT_FIELD_LIMITS } from '@/lib/contact/contactLimits';
+import {
+  PUBLIC_SUPPORT_EMAIL,
+  PUBLIC_SUPPORT_MAILTO,
+} from '@/lib/contact/publicSupport';
 
 type FormState = 'idle' | 'submitting' | 'success' | 'error';
 
 export default function ContactPage() {
   const [formState, setFormState] = useState<FormState>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     subject: '',
     message: '',
+    companyWebsite: '',
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    idempotencyKeyRef.current = null;
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
@@ -27,20 +35,28 @@ export default function ContactPage() {
     setErrorMessage('');
 
     try {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const response = await fetch('/api/contact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKeyRef.current,
+        },
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => null) as {
+        accepted?: boolean;
+        error?: string;
+      } | null;
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send message');
+      if (!response.ok || data?.accepted !== true) {
+        throw new Error(data?.error || 'Your message could not be submitted. Please try again.');
       }
 
       setFormState('success');
-      setFormData({ name: '', email: '', subject: '', message: '' });
+      idempotencyKeyRef.current = null;
+      setFormData({ name: '', email: '', subject: '', message: '', companyWebsite: '' });
     } catch (error) {
       setFormState('error');
       setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
@@ -102,15 +118,17 @@ export default function ContactPage() {
             <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-8 h-8 text-green-400" />
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2">Message Sent!</h2>
-            <p className="text-sm text-indigo-300 mb-6">
-              Thanks for reaching out. We typically respond within 1-3 business days.
+            <h2 className="text-xl font-semibold text-white mb-2">Message submitted</h2>
+            <p className="text-sm text-indigo-300 mb-6" role="status">
+              Your request was accepted for processing. Email delivery is not
+              guaranteed; if it arrives, we typically respond within 1-3
+              business days.
             </p>
             <button
               onClick={() => setFormState('idle')}
               className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
             >
-              Send another message
+              Submit another message
             </button>
           </motion.div>
         )}
@@ -126,7 +144,7 @@ export default function ContactPage() {
           >
             {/* Error message */}
             {formState === 'error' && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+              <div role="alert" className="flex items-center gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
                 <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
                 <p className="text-sm text-red-300">{errorMessage}</p>
               </div>
@@ -143,6 +161,8 @@ export default function ContactPage() {
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
+                maxLength={CONTACT_FIELD_LIMITS.name}
+                autoComplete="name"
                 required
                 disabled={formState === 'submitting'}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#0f0f1a]/50 border border-indigo-500/20 text-white placeholder-indigo-500 focus:outline-none focus:border-indigo-400 transition-colors disabled:opacity-50"
@@ -161,6 +181,8 @@ export default function ContactPage() {
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
+                maxLength={CONTACT_FIELD_LIMITS.email}
+                autoComplete="email"
                 required
                 disabled={formState === 'submitting'}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#0f0f1a]/50 border border-indigo-500/20 text-white placeholder-indigo-500 focus:outline-none focus:border-indigo-400 transition-colors disabled:opacity-50"
@@ -200,11 +222,26 @@ export default function ContactPage() {
                 name="message"
                 value={formData.message}
                 onChange={handleChange}
+                maxLength={CONTACT_FIELD_LIMITS.message}
                 required
                 disabled={formState === 'submitting'}
                 rows={5}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#0f0f1a]/50 border border-indigo-500/20 text-white placeholder-indigo-500 focus:outline-none focus:border-indigo-400 transition-colors resize-none disabled:opacity-50"
                 placeholder="How can we help you?"
+              />
+            </div>
+
+            <div className="absolute left-[-10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+              <label htmlFor="companyWebsite">Company website</label>
+              <input
+                type="text"
+                id="companyWebsite"
+                name="companyWebsite"
+                value={formData.companyWebsite}
+                onChange={handleChange}
+                maxLength={CONTACT_FIELD_LIMITS.companyWebsite}
+                tabIndex={-1}
+                autoComplete="off"
               />
             </div>
 
@@ -217,12 +254,12 @@ export default function ContactPage() {
               {formState === 'submitting' ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Sending...</span>
+                  <span>Submitting...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>Send Message</span>
+                  <span>Submit message</span>
                 </>
               )}
             </button>
@@ -242,10 +279,10 @@ export default function ContactPage() {
           <p className="text-sm text-indigo-400">
             You can also email us directly at{' '}
             <a
-              href="mailto:support-ats@jalanea.dev"
+              href={PUBLIC_SUPPORT_MAILTO}
               className="text-indigo-300 hover:text-white transition-colors underline underline-offset-2"
             >
-              support-ats@jalanea.dev
+              {PUBLIC_SUPPORT_EMAIL}
             </a>
           </p>
         </motion.div>

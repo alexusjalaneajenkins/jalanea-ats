@@ -425,7 +425,7 @@ ${input.bulletSection || 'Experience'}
         console.warn('[Gemini] Response was truncated due to max tokens limit');
       }
 
-      let textContent = candidate?.content?.parts?.[0]?.text;
+      const textContent = candidate?.content?.parts?.[0]?.text;
       console.log('[Gemini] Text content:', textContent);
 
       if (!textContent || textContent.trim() === '') {

@@ -338,11 +338,45 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   backoffMultiplier: 2,
 };
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
+}
+
+export function isAbortError(
+  error: unknown,
+  signal?: AbortSignal | null
+): boolean {
+  return Boolean(
+    signal?.aborted ||
+      (error instanceof Error && error.name === 'AbortError')
+  );
+}
+
+export function throwIfAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted) {
+    throw abortReason(signal);
+  }
+}
+
 /**
- * Sleep for a specified duration
+ * Sleep for a specified duration, stopping immediately when cancelled.
  */
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', handleAbort);
+      resolve();
+    }, ms);
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', handleAbort);
+      reject(signal ? abortReason(signal) : new DOMException('The operation was aborted', 'AbortError'));
+    };
+
+    signal?.addEventListener('abort', handleAbort, { once: true });
+  });
 }
 
 /**
@@ -356,10 +390,14 @@ export async function fetchWithRetry(
 ): Promise<Response> {
   let lastError: Error | null = null;
   let delay = config.initialDelay;
+  const signal = options.signal ?? undefined;
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    throwIfAborted(signal);
+
     try {
       const response = await fetch(url, options);
+      throwIfAborted(signal);
 
       // If successful or a non-retryable error, return immediately
       if (response.ok || (response.status !== 503 && response.status !== 429)) {
@@ -372,13 +410,17 @@ export async function fetchWithRetry(
           `[API Retry] Attempt ${attempt + 1}/${config.maxRetries + 1} failed with ${response.status}. ` +
           `Retrying in ${delay}ms...`
         );
-        await sleep(delay);
+        await sleep(delay, signal);
         delay = Math.min(delay * config.backoffMultiplier, config.maxDelay);
       } else {
         // Last attempt failed, return the response so caller can handle the error
         return response;
       }
     } catch (error) {
+      if (isAbortError(error, signal)) {
+        throw error;
+      }
+
       lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < config.maxRetries) {
@@ -386,7 +428,7 @@ export async function fetchWithRetry(
           `[API Retry] Attempt ${attempt + 1}/${config.maxRetries + 1} failed with network error. ` +
           `Retrying in ${delay}ms...`
         );
-        await sleep(delay);
+        await sleep(delay, signal);
         delay = Math.min(delay * config.backoffMultiplier, config.maxDelay);
       }
     }

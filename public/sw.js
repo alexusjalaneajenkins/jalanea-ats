@@ -1,15 +1,19 @@
 /**
  * Jalanea ATS Service Worker
- * Enables offline functionality and caching
+ * Keeps the app installable and provides an honest offline notice.
+ *
+ * Resume analysis is not advertised or cached as an offline feature.
  */
 
-const CACHE_NAME = 'jalanea-ats-v3';
+const CACHE_NAME = 'jalanea-ats-install-v4';
 
-// Files to cache for offline use
+// Install assets only. Do not cache app pages, resume data, or analysis output.
 const STATIC_ASSETS = [
-  '/',
+  '/offline.html',
   '/manifest.json',
-  '/icons/icon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
 ];
 
 // Install event - cache static assets
@@ -42,7 +46,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - network for the app, with a static notice for offline navigation.
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
@@ -55,50 +59,27 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Never cache Next.js build assets. Stale chunk caches can crash the app after deploys.
-  if (url.pathname.startsWith('/_next/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  // For app/document navigations, prefer network to avoid serving stale app shells.
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('/'))
+      fetch(event.request).catch(() => caches.match('/offline.html'))
     );
     return;
   }
 
+  if (STATIC_ASSETS.includes(url.pathname)) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) =>
+        cachedResponse || fetch(event.request)
+      )
+    );
+    return;
+  }
+
+  // Everything else stays network-only so a previous user's document or a
+  // stale application bundle is never served from this cache.
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached version
-        return cachedResponse;
-      }
-
-      // Fetch from network and cache
-      return fetch(event.request).then((response) => {
-        // Don't cache non-successful responses
-        if (!response || response.status !== 200) {
-          return response;
-        }
-
-        // Clone the response
-        const responseToCache = response.clone();
-
-        // Cache the fetched response
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-
-        return response;
-      }).catch(() => {
-        // If both cache and network fail, show offline page
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
-        return new Response('Offline', { status: 503 });
-      });
-    })
+    fetch(event.request).catch(
+      () => new Response('Network connection required', { status: 503 })
+    )
   );
 });

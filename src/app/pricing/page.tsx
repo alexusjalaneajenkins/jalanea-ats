@@ -12,7 +12,14 @@ function PricingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const canceled = searchParams.get('canceled');
-  const { user, session, hasAccess, isLifetime, isLoading } = useAuth();
+  const {
+    user,
+    session,
+    hasAccess,
+    accessSource,
+    isLifetime,
+    isLoading,
+  } = useAuth();
   const [loadingPlan, setLoadingPlan] = useState<'lifetime' | 'monthly' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,7 +145,13 @@ function PricingContent() {
         >
           <Check className="w-5 h-5 shrink-0" />
           <span>
-            You have {isLifetime ? 'lifetime' : 'active'} access!{' '}
+            You have{' '}
+            {accessSource === 'grant'
+              ? 'complimentary'
+              : isLifetime
+                ? 'lifetime'
+                : 'active'}{' '}
+            access!{' '}
             <Link href="/account" className="underline hover:text-emerald-200">
               View your account
             </Link>

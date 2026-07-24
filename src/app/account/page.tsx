@@ -3,14 +3,24 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Crown, Zap, LogOut, CheckCircle, Calendar, Star, CreditCard, Mail, Trash2, AlertTriangle, X, HelpCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Sparkles, Crown, Zap, LogOut, CheckCircle, Calendar, Star, CreditCard, Mail, Lock, Trash2, AlertTriangle, X, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { updateEmail, deleteAccount } from '@/lib/supabase-browser';
+import { getAccountBillingState } from '@/lib/billing/accountBillingState';
+import { Dialog } from '@/components/ui/Dialog';
 
 export default function AccountPage() {
   const router = useRouter();
-  const { user, hasAccess, isLifetime, subscription, signOut, isLoading } = useAuth();
+  const {
+    user,
+    hasAccess,
+    accessSource,
+    isLifetime,
+    subscription,
+    signOut,
+    isLoading,
+  } = useAuth();
 
   // Modal states
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -44,7 +54,12 @@ export default function AccountPage() {
   }, [user, isLoading, router]);
 
   const handleSignOut = async () => {
-    await signOut();
+    setActionError(null);
+    const { error } = await signOut();
+    if (error) {
+      setActionError(error);
+      return;
+    }
     router.push('/');
   };
 
@@ -52,21 +67,18 @@ export default function AccountPage() {
     setActionLoading(true);
     setActionError(null);
     try {
-      const response = await fetch('/api/billing/portal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnUrl: window.location.href }),
-      });
+      const response = await fetch('/api/billing/portal', { method: 'POST' });
       const data = await response.json();
-      if (data.error) {
-        setActionError(data.error);
-      } else if (data.url) {
+      if (!response.ok || !data.url) {
+        setActionError(data.error ?? 'Failed to open ATS billing');
+      } else {
         window.location.href = data.url;
       }
     } catch {
-      setActionError('Failed to open billing portal');
+      setActionError('Failed to open ATS billing');
+    } finally {
+      setActionLoading(false);
     }
-    setActionLoading(false);
   };
 
   const handleEmailChange = async () => {
@@ -90,7 +102,7 @@ export default function AccountPage() {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== 'DELETE') return;
+    if (deleteConfirmText !== 'REMOVE ATS') return;
     setActionLoading(true);
     setActionError(null);
     const { error } = await deleteAccount();
@@ -112,13 +124,9 @@ export default function AccountPage() {
 
   if (!user) {
     return (
-      <>
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="text-indigo-300">Redirecting to login...</div>
-        </div>
-        {/* Keep AnimatePresence mounted across render branches */}
-        <AnimatePresence />
-      </>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-indigo-300">Redirecting to login...</div>
+      </div>
     );
   }
 
@@ -143,6 +151,16 @@ export default function AccountPage() {
     // Capitalize first letter
     return name.charAt(0).toUpperCase() + name.slice(1);
   };
+
+  const billingStatusLabel = subscription?.status
+    ? subscription.status
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, character => character.toUpperCase())
+    : null;
+  const accountBillingState = getAccountBillingState(
+    hasAccess,
+    subscription?.status
+  );
 
   return (
     <div className="min-h-screen px-4 py-8 flex flex-col overflow-hidden">
@@ -247,27 +265,38 @@ export default function AccountPage() {
           <div className="pt-4">
             <h3 className="text-xs font-medium text-indigo-400 uppercase tracking-wide mb-3">Subscription</h3>
 
-            {hasAccess ? (
+            {accountBillingState === 'active' ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
                     {isLifetime ? (
                       <Crown className="w-5 h-5 text-white" />
+                    ) : accessSource === 'grant' ? (
+                      <Star className="w-5 h-5 text-white" />
                     ) : (
                       <Zap className="w-5 h-5 text-white" />
                     )}
                   </div>
                   <div>
                     <p className="font-semibold text-white text-sm">
-                      {isLifetime ? 'Lifetime Access' : 'Monthly Subscription'}
+                      {accessSource === 'grant'
+                        ? 'Complimentary access'
+                        : isLifetime
+                          ? 'Lifetime Access'
+                          : 'Monthly Subscription'}
                     </p>
                     <p className="text-xs text-emerald-400">
-                      {isLifetime ? 'You\'re set for life! 🎉' : 'Active & ready to go'}
+                      {accessSource === 'grant'
+                        ? 'Access provided by Jalanea'
+                        : isLifetime
+                          ? 'You\'re set for life! 🎉'
+                          : 'Active & ready to go'}
                     </p>
                   </div>
                 </div>
 
-                {!isLifetime && subscription?.currentPeriodEnd && (
+                {accessSource === 'subscription'
+                  && subscription?.currentPeriodEnd && (
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <Calendar className="w-3 h-3" />
                     <span>Renews {formatDate(subscription.currentPeriodEnd)}</span>
@@ -285,6 +314,31 @@ export default function AccountPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+            ) : accountBillingState === 'needs_attention' && subscription ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                  <div className="w-10 h-10 shrink-0 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-amber-300" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white text-sm">Billing needs attention</p>
+                    <p className="text-xs text-amber-300 mt-0.5">
+                      Status: {billingStatusLabel}
+                    </p>
+                    <p className="text-xs text-indigo-300 mt-2">
+                      Your ATS billing relationship already exists. Resolve it before paid access can resume.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleManageBilling}
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-2 py-2.5 px-5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-100 text-sm font-semibold hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  Manage ATS billing
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -327,15 +381,14 @@ export default function AccountPage() {
           )}
 
           <div className="space-y-2">
-            {/* Manage Billing - only show if user has subscription */}
-            {hasAccess && !isLifetime && (
+            {subscription && !isLifetime && (
               <button
                 onClick={handleManageBilling}
                 disabled={actionLoading}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
               >
                 <CreditCard className="w-4 h-4" />
-                <span className="text-sm font-medium">Manage billing</span>
+                <span className="text-sm font-medium">Manage ATS billing</span>
               </button>
             )}
 
@@ -360,6 +413,16 @@ export default function AccountPage() {
               </button>
             )}
 
+            {!isGoogleOnlyUser && (
+              <Link
+                href="/update-password"
+                className="w-full flex items-center gap-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 hover:bg-indigo-500/20 transition-colors"
+              >
+                <Lock className="w-4 h-4" />
+                <span className="text-sm font-medium">Change password</span>
+              </Link>
+            )}
+
             {/* Get Help */}
             <Link
               href="/help"
@@ -369,13 +432,13 @@ export default function AccountPage() {
               <span className="text-sm font-medium">Get help</span>
             </Link>
 
-            {/* Delete Account */}
+            {/* Remove ATS product data while preserving the shared identity */}
             <button
               onClick={() => setShowDeleteModal(true)}
               className="w-full flex items-center gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 hover:bg-red-500/20 transition-colors"
             >
               <Trash2 className="w-4 h-4" />
-              <span className="text-sm font-medium">Delete account</span>
+              <span className="text-sm font-medium">Remove Jalanea ATS data</span>
             </button>
           </div>
         </motion.div>
@@ -395,38 +458,45 @@ export default function AccountPage() {
       </motion.div>
 
       {/* Email Change Modal */}
-      <AnimatePresence>
-        {showEmailModal && (
+      <Dialog
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        labelledBy="change-email-dialog-title"
+      >
+        <div className="flex min-h-[100dvh] items-center justify-center p-4">
           <motion.div
-            initial={{ opacity: 0 }}
+            initial={{ scale: 0.95, opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowEmailModal(false)}
+            className="bg-[#1a1a2e] border border-indigo-500/20 rounded-2xl p-6 w-full max-w-md"
           >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1a1a2e] border border-indigo-500/20 rounded-2xl p-6 w-full max-w-md"
-              onClick={e => e.stopPropagation()}
-            >
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-white">Change email</h2>
-                <button onClick={() => setShowEmailModal(false)} className="text-indigo-400 hover:text-indigo-300">
+                <h2
+                  id="change-email-dialog-title"
+                  className="text-lg font-semibold text-white"
+                >
+                  Change email
+                </h2>
+                <button
+                  onClick={() => setShowEmailModal(false)}
+                  aria-label="Close change email dialog"
+                  className="text-indigo-400 hover:text-indigo-300"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <p className="text-sm text-indigo-300 mb-4">
                 Enter your new email address. We&apos;ll send a confirmation link to verify it.
               </p>
-              <input
-                type="email"
-                value={newEmail}
-                onChange={e => setNewEmail(e.target.value)}
-                placeholder="new@email.com"
-                className="w-full px-4 py-3 rounded-xl bg-indigo-900/50 border border-indigo-500/30 text-white placeholder-indigo-400 focus:outline-none focus:border-indigo-400 mb-4"
-              />
+              <label className="mb-4 block">
+                <span className="sr-only">New email address</span>
+                <input
+                  type="email"
+                  value={newEmail}
+                  onChange={e => setNewEmail(e.target.value)}
+                  placeholder="new@email.com"
+                  className="w-full px-4 py-3 rounded-xl bg-indigo-900/50 border border-indigo-500/30 text-white placeholder-indigo-400 focus:outline-none focus:border-indigo-400"
+                />
+              </label>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowEmailModal(false)}
@@ -442,52 +512,66 @@ export default function AccountPage() {
                   {actionLoading ? 'Updating...' : 'Update email'}
                 </button>
               </div>
-            </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      </Dialog>
 
-      {/* Delete Account Modal */}
-      <AnimatePresence>
-        {showDeleteModal && (
+      {/* ATS-scoped removal modal */}
+      <Dialog
+        isOpen={showDeleteModal}
+        onClose={() => {
+          if (!actionLoading) {
+            setShowDeleteModal(false);
+            setDeleteConfirmText('');
+          }
+        }}
+        labelledBy="remove-ats-dialog-title"
+        describedBy="remove-ats-dialog-description"
+        role="alertdialog"
+        closeOnBackdrop={false}
+      >
+        <div className="flex min-h-[100dvh] items-center justify-center p-4">
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowDeleteModal(false)}
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#1a1a2e] border border-red-500/20 rounded-2xl p-6 w-full max-w-md"
           >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1a1a2e] border border-red-500/20 rounded-2xl p-6 w-full max-w-md"
-              onClick={e => e.stopPropagation()}
-            >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-red-400" />
                 </div>
-                <h2 className="text-lg font-semibold text-white">Delete account</h2>
+                <h2
+                  id="remove-ats-dialog-title"
+                  className="text-lg font-semibold text-white"
+                >
+                  Remove Jalanea ATS data
+                </h2>
               </div>
-              <p className="text-sm text-indigo-300 mb-2">
-                This action is <strong className="text-red-400">permanent</strong> and cannot be undone.
+              <p
+                id="remove-ats-dialog-description"
+                className="text-sm text-indigo-300 mb-2"
+              >
+                This permanently removes your Jalanea ATS membership and locally saved ATS data.
               </p>
               <ul className="text-sm text-indigo-400 mb-4 space-y-1">
-                <li>- Your account and all data will be deleted</li>
-                <li>- Any active subscriptions will be canceled</li>
-                <li>- You will lose access immediately</li>
+                <li>- Active Jalanea ATS subscriptions will be canceled</li>
+                <li>- ATS access, product-scoped billing links, usage data, and local resume history will be removed</li>
+                <li>- Your shared sign-in, profile, and tutoring data will remain</li>
+                <li>- Stripe retains customer, payment, and invoice records for payment, dispute, and legal purposes</li>
               </ul>
               <p className="text-sm text-indigo-300 mb-2">
-                Type <strong className="text-white">DELETE</strong> to confirm:
+                Type <strong className="text-white">REMOVE ATS</strong> to confirm:
               </p>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={e => setDeleteConfirmText(e.target.value)}
-                placeholder="Type DELETE"
-                className="w-full px-4 py-3 rounded-xl bg-red-900/20 border border-red-500/30 text-white placeholder-red-400/50 focus:outline-none focus:border-red-400 mb-4"
-              />
+              <label className="mb-4 block">
+                <span className="sr-only">Type REMOVE ATS to confirm</span>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type REMOVE ATS"
+                  className="w-full px-4 py-3 rounded-xl bg-red-900/20 border border-red-500/30 text-white placeholder-red-400/50 focus:outline-none focus:border-red-400"
+                />
+              </label>
               <div className="flex gap-3">
                 <button
                   onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }}
@@ -497,16 +581,15 @@ export default function AccountPage() {
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  disabled={actionLoading || deleteConfirmText !== 'DELETE'}
+                  disabled={actionLoading || deleteConfirmText !== 'REMOVE ATS'}
                   className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-medium hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {actionLoading ? 'Deleting...' : 'Delete account'}
+                  {actionLoading ? 'Removing...' : 'Remove ATS data'}
                 </button>
               </div>
-            </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      </Dialog>
     </div>
   );
 }
