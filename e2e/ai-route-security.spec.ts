@@ -25,7 +25,7 @@ test.describe('AI route containment', () => {
     expect(response.status()).toBe(400);
   });
 
-  test('unused legacy analysis endpoint is absent', async ({ request }) => {
+  test('unused legacy analysis endpoint is explicitly retired', async ({ request }) => {
     const response = await request.post('/api/analyze', {
       headers: { 'X-AI-Consent': 'acknowledged' },
       data: {
@@ -34,6 +34,9 @@ test.describe('AI route containment', () => {
       },
     });
 
-    expect(response.status()).toBe(404);
+    expect(response.status()).toBe(410);
+    expect(await response.json()).toMatchObject({
+      code: 'ENDPOINT_RETIRED',
+    });
   });
 });

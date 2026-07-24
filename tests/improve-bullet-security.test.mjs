@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -143,13 +143,15 @@ test('client headers never claim consent when stored consent is false', () => {
   assert.equal(buildAiJsonHeaders(false)['X-AI-Consent'], undefined);
 });
 
-test('the unused legacy analyze route is removed', async () => {
-  const routePath = fileURLToPath(
-    new URL('../src/app/api/analyze/route.ts', import.meta.url)
+test('the unused legacy analyze route is explicitly retired', async () => {
+  const routeSource = await readFile(
+    fileURLToPath(
+      new URL('../src/app/api/analyze/route.ts', import.meta.url)
+    ),
+    'utf8'
   );
 
-  await assert.rejects(
-    access(routePath),
-    (error) => error?.code === 'ENOENT'
-  );
+  assert.match(routeSource, /status:\s*410/);
+  assert.match(routeSource, /ENDPOINT_RETIRED/);
+  assert.doesNotMatch(routeSource, /generateATSAnalysis|GEMINI_API_KEY/);
 });
