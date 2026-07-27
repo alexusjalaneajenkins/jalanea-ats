@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { Upload, CheckCircle, AlertTriangle, Loader2, Lock } from 'lucide-react';
 
 /**
@@ -33,7 +33,8 @@ export function UploadDropzone({
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputId = useId();
+  const descriptionId = `${fileInputId}-description`;
 
   const displayError = error || localError;
 
@@ -124,12 +125,16 @@ export function UploadDropzone({
       e.stopPropagation();
       setIsDragOver(false);
 
+      if (isProcessing) {
+        return;
+      }
+
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         await handleFile(files[0]);
       }
     },
-    [handleFile]
+    [handleFile, isProcessing]
   );
 
   /**
@@ -137,34 +142,18 @@ export function UploadDropzone({
    */
   const handleInputChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        await handleFile(files[0]);
+      const input = e.currentTarget;
+      const file = input.files?.[0];
+      try {
+        if (file) {
+          await handleFile(file);
+        }
+      } finally {
+        // Let someone choose the same file again after a parse/validation error.
+        input.value = '';
       }
     },
     [handleFile]
-  );
-
-  /**
-   * Opens the file browser.
-   */
-  const handleClick = useCallback(() => {
-    if (!isProcessing) {
-      fileInputRef.current?.click();
-    }
-  }, [isProcessing]);
-
-  /**
-   * Handles keyboard navigation.
-   */
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleClick();
-      }
-    },
-    [handleClick]
   );
 
   /**
@@ -195,33 +184,43 @@ export function UploadDropzone({
 
   return (
     <div className="w-full">
-      <div
+      <input
+        id={fileInputId}
+        type="file"
+        accept={acceptedTypes.join(',')}
+        onChange={handleInputChange}
+        disabled={isProcessing}
+        className="peer sr-only"
+        aria-label="Upload resume file"
+        aria-describedby={descriptionId}
+      />
+      <span id={descriptionId} className="sr-only" aria-live="polite">
+        {isProcessing
+          ? 'Extracting text from your resume.'
+          : displayError
+            ? `Upload failed. ${displayError}`
+            : selectedFile
+              ? `Selected ${selectedFile.name}, ${formatFileSize(selectedFile.size)}.`
+              : 'Choose a PDF, DOCX, or TXT resume file up to 10 megabytes.'}
+      </span>
+      <label
+        htmlFor={fileInputId}
+        data-testid="resume-upload-trigger"
         className={`
           relative rounded-2xl border-2 border-dashed p-4 sm:p-6 md:p-8
           transition-all duration-200 ease-in-out
-          cursor-pointer backdrop-blur-sm
+          block backdrop-blur-sm
+          peer-focus-visible:outline-none peer-focus-visible:ring-2
+          peer-focus-visible:ring-cyan-300 peer-focus-visible:ring-offset-2
+          peer-focus-visible:ring-offset-indigo-950
+          ${isProcessing ? 'cursor-wait' : 'cursor-pointer'}
           ${getStateStyles()}
         `}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
-        role="button"
-        aria-label="Upload resume file"
-        aria-describedby="upload-description"
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={acceptedTypes.join(',')}
-          onChange={handleInputChange}
-          className="hidden"
-          aria-hidden="true"
-        />
-
         <div className="flex flex-col items-center justify-center text-center">
           {/* Icon */}
           <div className="mb-4">
@@ -266,7 +265,7 @@ export function UploadDropzone({
               </p>
             </div>
           ) : (
-            <div id="upload-description">
+            <div>
               {/* Desktop view */}
               <p className="text-lg font-bold text-white hidden sm:block">
                 Drag & drop your resume here
@@ -284,7 +283,7 @@ export function UploadDropzone({
             </div>
           )}
         </div>
-      </div>
+      </label>
 
       {/* Privacy notice */}
       <div className="mt-4 flex items-center justify-center gap-2 text-xs text-indigo-400">
