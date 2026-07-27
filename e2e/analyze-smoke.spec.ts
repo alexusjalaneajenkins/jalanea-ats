@@ -7,6 +7,11 @@ test('upload + analysis flow does not hit React hook crash', async ({ page }) =>
   const runtimeErrors: string[] = [];
   const resetAt = new Date(Date.now() + 86_400_000).toISOString();
 
+  await page.addInitScript(() => {
+    localStorage.setItem('jalanea-onboarding-seen', 'true');
+    localStorage.setItem('pwa-install-dismissed', 'true');
+  });
+
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -68,7 +73,46 @@ test('upload + analysis flow does not hit React hook crash', async ({ page }) =>
 
   await page.goto('/');
 
-  await page.locator('input[type="file"]').first().setInputFiles(resumeFixturePath);
+  const uploadTrigger = page.getByTestId('resume-upload-trigger');
+  const fileInput = page.locator('input[type="file"]');
+  await expect(uploadTrigger).toHaveAttribute('for', /.+/);
+  await expect(uploadTrigger.locator('input[type="file"]')).toHaveCount(0);
+  await expect(fileInput).not.toHaveAttribute('aria-hidden', 'true');
+
+  for (const key of ['Enter', 'Space']) {
+    const keyboardChooserPromise = page.waitForEvent('filechooser');
+    await fileInput.press(key);
+    const keyboardChooser = await keyboardChooserPromise;
+    expect(keyboardChooser.isMultiple()).toBe(false);
+  }
+
+  await fileInput.evaluate((input) => {
+    input.setAttribute('data-change-count', '0');
+    input.addEventListener('change', () => {
+      const count = Number(input.getAttribute('data-change-count') ?? '0');
+      input.setAttribute('data-change-count', String(count + 1));
+    });
+  });
+
+  const invalidFile = {
+    name: 'resume.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('name,experience\nExample,Invalid upload fixture'),
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const invalidChooserPromise = page.waitForEvent('filechooser');
+    await uploadTrigger.click();
+    const invalidChooser = await invalidChooserPromise;
+    await invalidChooser.setFiles(invalidFile);
+    await expect(page.getByText('Upload failed', { exact: true })).toBeVisible();
+  }
+  await expect(fileInput).toHaveAttribute('data-change-count', '2');
+
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await uploadTrigger.click();
+  const fileChooser = await fileChooserPromise;
+  expect(fileChooser.isMultiple()).toBe(false);
+  await fileChooser.setFiles(resumeFixturePath);
 
   await page.waitForURL(/\/results\/[^/]+$/, { timeout: 30000 });
   await expect(page.getByRole('heading', { name: 'Job Description' })).toBeVisible({ timeout: 20000 });
@@ -106,6 +150,9 @@ test('upload + analysis flow does not hit React hook crash', async ({ page }) =>
     .then(() => true)
     .catch(() => false);
   if (consentOpened) {
+    const consentDialog = page.getByRole('dialog', {
+      name: 'Enable AI Features',
+    });
     const acknowledgments = [
       'I understand my data will be sent to external servers',
       'I understand AI usage limits apply',
@@ -114,10 +161,16 @@ test('upload + analysis flow does not hit React hook crash', async ({ page }) =>
     ];
 
     for (const [index, acknowledgment] of acknowledgments.entries()) {
-      await page.getByRole('button', { name: acknowledgment }).click();
-      await page
-        .getByRole('button', { name: index === acknowledgments.length - 1 ? 'Enable AI Features' : 'Next' })
-        .last()
+      await consentDialog
+        .getByRole('button', { name: acknowledgment })
+        .click();
+      await consentDialog
+        .getByRole('button', {
+          name:
+            index === acknowledgments.length - 1
+              ? 'Enable AI Features'
+              : 'Next',
+        })
         .click();
     }
   }
